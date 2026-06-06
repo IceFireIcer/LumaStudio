@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>光影工作室 · Photo Studio</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-dot"></span>
+      <div class="logo-text">光影<small>Photo Studio</small></div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-view="library">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z M4 15l4-4 3 3 4-5 5 6"/></svg>
+        <span>相册</span>
+      </button>
+      <button class="nav-item" data-view="albums">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>收藏夹</span>
+      </button>
+      <button class="nav-item" data-view="editor" id="navEditor">
+        <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8 M14 7h7v7"/></svg>
+        <span>编辑器</span>
+      </button>
+      <button class="nav-item" data-view="exif" id="navExif">
+        <svg viewBox="0 0 24 24"><path d="M12 8h.01M11 12h1v4h1 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+        <span>信息</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H7a1.6 1.6 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V7a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+        <span>设置</span>
+      </button>
+      <button class="nav-item" data-view="about">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8h.01M11 11h1v6h1"/></svg>
+        <span>关于</span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="storage-mini" id="storageMini">— 张照片</div>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="stage">
+
+    <!-- ===== 相册 ===== -->
+    <section class="view active" data-view="library">
+      <div class="topbar">
+        <div>
+          <h1>我的相册</h1>
+          <p class="sub" id="libSub">照片保存在服务器,可随时编辑</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn ghost" id="clearAllBtn">清空</button>
+          <button class="btn primary" id="uploadBtn">＋ 上传照片</button>
+        </div>
+      </div>
+
+      <div class="dropzone" id="dropzone">
+        <div class="dz-ico">📷</div>
+        <p><strong>点击或拖拽照片到这里</strong></p>
+        <p class="dz-hint">JPG / PNG / WebP / AVIF / GIF · 自动生成缩略图</p>
+        <div class="upload-progress" id="uploadProgress"><div class="bar"></div></div>
+      </div>
+
+      <!-- 工具栏:搜索/排序/筛选/批量 -->
+      <div class="toolbar" id="toolbar">
+        <div class="tb-search">
+          <input type="text" id="searchInput" placeholder="🔍 搜索文件名…" autocomplete="off">
+        </div>
+        <select id="sortSelect" class="tb-select">
+          <option value="">最新上传</option>
+          <option value="oldest">最早上传</option>
+          <option value="name">名称 A→Z</option>
+          <option value="name_desc">名称 Z→A</option>
+          <option value="size">最小在前</option>
+          <option value="size_desc">最大在前</option>
+          <option value="stars">评分最高</option>
+        </select>
+        <select id="filterSelect" class="tb-select">
+          <option value="">全部照片</option>
+          <option value="pick">★ 精选</option>
+          <option value="reject">✗ 排除</option>
+          <option value="flagged">已标记</option>
+          <option value="5">★★★★★</option>
+          <option value="4">★★★★</option>
+          <option value="3">★★★</option>
+          <option value="2">★★</option>
+          <option value="1">★</option>
+        </select>
+        <select id="formatFilter" class="tb-select">
+          <option value="">所有格式</option>
+          <option value="jpeg">JPEG</option>
+          <option value="png">PNG</option>
+          <option value="webp">WebP</option>
+          <option value="gif">GIF</option>
+        </select>
+      </div>
+      <!-- 批量操作条 -->
+      <div class="batch-bar" id="batchBar" hidden>
+        <span id="selCount">0 张已选</span>
+        <button class="btn sm ghost" id="batchSelectAll">全选</button>
+        <button class="btn sm ghost" id="batchClearSel">取消</button>
+        <div class="divider-v"></div>
+        <button class="btn sm ghost" id="batchPick" title="标记精选">★ 精选</button>
+        <button class="btn sm ghost" id="batchReject" title="标记排除">✗ 排除</button>
+        <button class="btn sm ghost" id="batchRate" title="批量评分">评分</button>
+        <div class="divider-v"></div>
+        <button class="btn sm ghost" id="batchAlbum" title="添加到收藏夹">📁 收藏夹</button>
+        <button class="btn sm ghost" id="batchZip" title="批量下载ZIP">⬇ ZIP</button>
+        <button class="btn sm danger" id="batchDelete" title="批量删除">🗑 删除</button>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="emptyState">
+        <div class="empty-ico">🖼️</div>
+        <p>还没有照片,上传几张开始吧</p>
+      </div>
+    </section>
+
+    <!-- ===== 编辑器 ===== -->
+    <section class="view" data-view="editor">
+      <div class="editor-wrap" id="editorWrap">
+        <div class="editor-canvas">
+          <div class="canvas-stage" id="canvasStage">
+            <img id="editImg" src="" alt="">
+            <div class="crop-overlay" id="cropOverlay" hidden>
+              <div class="crop-box" id="cropBox">
+                <span class="ch tl"></span><span class="ch tr"></span>
+                <span class="ch bl"></span><span class="ch br"></span>
+              </div>
+            </div>
+          </div>
+          <div class="canvas-bar">
+            <span id="editDims">—</span>
+            <span class="dot-sep">·</span>
+            <span id="editName">未选择图片</span>
+          </div>
+        </div>
+
+        <div class="editor-panel">
+          <div class="panel-tabs">
+            <button class="ptab active" data-ptab="adjust">调整</button>
+            <button class="ptab" data-ptab="transform">变换</button>
+            <button class="ptab" data-ptab="resize">尺寸</button>
+            <button class="ptab" data-ptab="export">导出</button>
+          </div>
+
+          <!-- 调整 -->
+          <div class="ptab-panel active" data-ptab="adjust">
+            <p class="hint">一键预设</p>
+            <div class="presets" id="presets">
+              <button class="chip active" data-preset="none">原图</button>
+              <button class="chip" data-preset="vivid">鲜艳</button>
+              <button class="chip" data-preset="soft">柔和</button>
+              <button class="chip" data-preset="vintage">复古</button>
+              <button class="chip" data-preset="mono">黑白</button>
+              <button class="chip" data-preset="punch">高对比</button>
+            </div>
+            <div class="divider"></div>
+            <label class="slider-row"><span>亮度</span><i id="vBrightness">100%</i>
+              <input type="range" id="brightness" min="0" max="200" value="100"></label>
+            <label class="slider-row"><span>对比度</span><i id="vContrast">100%</i>
+              <input type="range" id="contrast" min="0" max="200" value="100"></label>
+            <label class="slider-row"><span>饱和度</span><i id="vSaturation">100%</i>
+              <input type="range" id="saturation" min="0" max="200" value="100"></label>
+            <label class="slider-row"><span>色相</span><i id="vHue">0°</i>
+              <input type="range" id="hue" min="0" max="360" value="0"></label>
+            <label class="slider-row"><span>锐化</span><i id="vSharpen">0</i>
+              <input type="range" id="sharpen" min="0" max="10" step="0.5" value="0"></label>
+            <label class="slider-row"><span>模糊</span><i id="vBlur">0</i>
+              <input type="range" id="blur" min="0" max="20" step="0.5" value="0"></label>
+            <label class="switch-row"><span>黑白</span>
+              <input type="checkbox" id="grayscale"><span class="switch"></span></label>
+            <button class="btn ghost full" id="resetAdjust">重置全部</button>
+          </div>
+
+          <!-- 变换 -->
+          <div class="ptab-panel" data-ptab="transform">
+            <div class="btn-grid">
+              <button class="btn ghost" id="rotL">⟲ 左转 90°</button>
+              <button class="btn ghost" id="rotR">⟳ 右转 90°</button>
+              <button class="btn ghost" id="flipH">⇋ 水平翻转</button>
+              <button class="btn ghost" id="flipV">⇅ 垂直翻转</button>
+            </div>
+            <div class="divider"></div>
+            <button class="btn ghost full" id="cropToggle">✂ 开启裁剪</button>
+            <div class="crop-ratios" id="cropRatios" hidden>
+              <button class="chip active" data-ratio="free">自由</button>
+              <button class="chip" data-ratio="1">1:1</button>
+              <button class="chip" data-ratio="1.333">4:3</button>
+              <button class="chip" data-ratio="1.777">16:9</button>
+              <button class="chip" data-ratio="0.75">3:4</button>
+            </div>
+            <button class="btn primary full" id="applyCrop" hidden>应用裁剪</button>
+          </div>
+
+          <!-- 尺寸 -->
+          <div class="ptab-panel" data-ptab="resize">
+            <p class="hint">原始尺寸:<b id="origDims">—</b></p>
+            <label class="field"><span>宽度 (px)</span>
+              <input type="number" id="reW" min="1"></label>
+            <label class="field"><span>高度 (px)</span>
+              <input type="number" id="reH" min="1"></label>
+            <label class="switch-row"><span>锁定比例</span>
+              <input type="checkbox" id="lockRatio" checked><span class="switch"></span></label>
+            <div class="divider"></div>
+            <p class="hint">按百分比快速缩放</p>
+            <div class="btn-grid">
+              <button class="btn ghost" data-scale="0.25">25%</button>
+              <button class="btn ghost" data-scale="0.5">50%</button>
+              <button class="btn ghost" data-scale="0.75">75%</button>
+              <button class="btn ghost" data-scale="1">100%</button>
+            </div>
+          </div>
+
+          <!-- 导出 -->
+          <div class="ptab-panel" data-ptab="export">
+            <label class="field"><span>格式</span>
+              <select id="outFormat">
+                <option value="jpeg">JPEG(体积小)</option>
+                <option value="png">PNG(无损)</option>
+                <option value="webp">WebP(高效)</option>
+                <option value="avif">AVIF(最小)</option>
+              </select></label>
+            <label class="slider-row"><span>质量</span><i id="vQuality">82%</i>
+              <input type="range" id="quality" min="1" max="100" value="82"></label>
+            <p class="hint">预计大小约 <b id="estSize">—</b></p>
+            <div class="divider"></div>
+            <label class="switch-row"><span>覆盖原图</span>
+              <input type="checkbox" id="overwrite"><span class="switch"></span></label>
+            <p class="hint" id="overwriteHint">关闭时将另存为新副本,保留原图</p>
+            <button class="btn primary full big" id="exportBtn">💾 处理并保存</button>
+            <button class="btn ghost full" id="downloadBtn">⬇ 下载到本地</button>
+          </div>
+        </div>
+      </div>
+      <div class="editor-empty" id="editorEmpty">
+        <div class="empty-ico">🎨</div>
+        <p>从相册里点一张照片开始编辑</p>
+        <button class="btn primary" data-goto="library">前往相册</button>
+      </div>
+    </section>
+
+    <!-- ===== EXIF ===== -->
+    <section class="view" data-view="exif">
+      <div class="exif-wrap" id="exifWrap">
+        <div class="exif-preview"><img id="exifImg" src="" alt=""></div>
+        <div class="exif-panel">
+          <h2>元数据信息</h2>
+          <div class="exif-list" id="exifList"></div>
+          <div class="divider"></div>
+          <h3>编辑字段 <small>(仅 JPEG)</small></h3>
+          <label class="field"><span>作者</span><input id="exArtist" placeholder="拍摄者 / 作者"></label>
+          <label class="field"><span>版权</span><input id="exCopyright" placeholder="© ..."></label>
+          <label class="field"><span>描述</span><input id="exDesc" placeholder="图片说明"></label>
+          <label class="field"><span>拍摄时间</span><input id="exDate" placeholder="2026:06:06 12:00:00"></label>
+          <div class="btn-grid">
+            <button class="btn primary" id="saveExif">保存元数据</button>
+            <button class="btn danger" id="stripExif">抹除全部元数据</button>
+          </div>
+          <button class="btn ghost full" id="dlFromExif">⬇ 下载原图</button>
+        </div>
+      </div>
+      <div class="editor-empty" id="exifEmpty">
+        <div class="empty-ico">ℹ️</div>
+        <p>从相册里选一张照片查看信息</p>
+        <button class="btn primary" data-goto="library">前往相册</button>
+      </div>
+    </section>
+
+    <!-- ===== 设置 ===== -->
+    <section class="view" data-view="settings">
+      <div class="topbar"><div><h1>设置</h1><p class="sub">默认行为与存储</p></div></div>
+      <div class="settings-card">
+        <h3>导出默认值</h3>
+        <label class="field"><span>默认格式</span>
+          <select id="setFormat">
+            <option value="jpeg">JPEG</option><option value="png">PNG</option>
+            <option value="webp">WebP</option><option value="avif">AVIF</option>
+          </select></label>
+        <label class="slider-row"><span>默认质量</span><i id="vSetQuality">82%</i>
+          <input type="range" id="setQuality" min="1" max="100" value="82"></label>
+        <label class="field"><span>缩略图尺寸 (px)</span>
+          <input type="number" id="setThumb" min="120" max="1200"></label>
+      </div>
+      <div class="settings-card">
+        <h3>外观</h3>
+        <label class="field"><span>主题色</span>
+          <input type="color" id="setAccent" value="#0071e3"></label>
+        <div class="swatches" id="swatches"></div>
+      </div>
+      <div class="settings-card">
+        <h3>存储</h3>
+        <div class="stat-row"><span>照片数量</span><b id="stCount">—</b></div>
+        <div class="stat-row"><span>占用空间</span><b id="stSize">—</b></div>
+        <button class="btn danger" id="clearStorage">清空全部照片</button>
+      </div>
+      <button class="btn primary big" id="saveSettings">保存设置</button>
+    </section>
+
+    <!-- ===== 关于 ===== -->
+    <!-- ===== 收藏夹 ===== -->
+    <section class="view" data-view="albums">
+      <div class="topbar">
+        <div>
+          <h1>收藏夹</h1>
+          <p class="sub">将照片分组管理,方便选片</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn primary" id="createAlbumBtn">＋ 新建收藏夹</button>
+        </div>
+      </div>
+      <div class="albums-grid" id="albumsGrid"></div>
+      <div class="empty show" id="albumsEmpty">
+        <div class="empty-ico">📁</div>
+        <p>还没有收藏夹,点击上方创建一个</p>
+      </div>
+      <!-- 相册详情(点击相册后展示) -->
+      <div class="album-detail" id="albumDetail" hidden>
+        <div class="topbar">
+          <div>
+            <button class="btn ghost" id="albumBackBtn">← 返回</button>
+            <h1 id="albumTitle">收藏夹名称</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn ghost" id="albumRenameBtn">重命名</button>
+            <button class="btn danger" id="albumDeleteBtn">删除收藏夹</button>
+          </div>
+        </div>
+        <div class="grid" id="albumGrid"></div>
+      </div>
+    </section>
+
+    <!-- ===== 幻灯片 ===== -->
+    <div class="slideshow" id="slideshow" hidden>
+      <div class="sl-img-wrap"><img id="slImg" src="" alt=""></div>
+      <div class="sl-info" id="slInfo"></div>
+      <div class="sl-controls">
+        <button class="sl-btn" id="slPrev">‹</button>
+        <button class="sl-btn" id="slPlay">▶</button>
+        <button class="sl-btn" id="slNext">›</button>
+        <button class="sl-btn" id="slExit">✕</button>
+      </div>
+    </div>
+
+    <!-- ===== 关于 ===== -->
+    <section class="view" data-view="about">
+      <div class="topbar"><div><h1>关于</h1><p class="sub">Luma Studio · 光影工作室</p></div></div>
+      <div class="about-card">
+        <div class="about-hero">
+          <span class="about-logo">📷</span>
+          <h2>Luma Studio</h2>
+          <p class="about-tagline">光影工作室 · 图片查看与编辑</p>
+          <span class="about-ver" id="aboutVer">v1.0.0</span>
+        </div>
+        <div class="about-section">
+          <h3>简介</h3>
+          <p>Luma Studio 是一款自托管的图片查看与 Lightroom 风格编辑器。所有照片以真实文件保存在服务器磁盘上，重启后不会丢失。支持亮度/对比度/饱和度等实时调整、交互式裁剪、旋转翻转、分辨率缩放、格式转换与压缩，以及 EXIF 元数据的查看、编辑和抹除。</p>
+        </div>
+        <div class="about-section">
+          <h3>技术栈</h3>
+          <div class="tech-tags">
+            <span class="tech-tag">Node.js</span>
+            <span class="tech-tag">Express</span>
+            <span class="tech-tag">sharp (libvips)</span>
+            <span class="tech-tag">exifr</span>
+            <span class="tech-tag">piexifjs</span>
+            <span class="tech-tag">Vanilla JS</span>
+          </div>
+        </div>
+        <div class="about-section">
+          <h3>运行信息</h3>
+          <div class="stat-row"><span>Node.js 版本</span><b id="aboutNode">—</b></div>
+          <div class="stat-row"><span>sharp (libvips) 版本</span><b id="aboutSharp">—</b></div>
+          <div class="stat-row"><span>照片数量</span><b id="aboutPhotos">—</b></div>
+          <div class="stat-row"><span>占用空间</span><b id="aboutStorage">—</b></div>
+          <div class="stat-row"><span>服务器运行时间</span><b id="aboutUptime">—</b></div>
+        </div>
+        <div class="about-section">
+          <h3>许可证</h3>
+          <p>Apache License 2.0 © 2026</p>
+        </div>
+        <div class="about-footer">
+          <p>开发者: <b>IceFire_Icer</b></p>
+          <p>以匠心致光影 ✦</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 灯箱 -->
+  <div class="lightbox" id="lightbox">
+    <button class="lb-close" id="lbClose">✕</button>
+    <button class="lb-nav prev" id="lbPrev">‹</button>
+    <img id="lbImg" src="" alt="">
+    <button class="lb-nav next" id="lbNext">›</button>
+    <div class="lb-tools">
+      <button class="btn ghost sm" id="lbEdit">编辑</button>
+      <button class="btn ghost sm" id="lbInfo">信息</button>
+      <button class="btn ghost sm" id="lbRename">重命名</button>
+      <button class="btn ghost sm" id="lbSlideshow">幻灯片</button>
+      <button class="btn ghost sm" id="lbDownload">下载</button>
+      <span class="lb-cap" id="lbCap"></span>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*" multiple hidden>
+  <div class="toast" id="toast"></div>
+  <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

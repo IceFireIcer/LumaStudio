@@ -1,0 +1,29 @@
+# ===== Dependencies =====
+node_modules/
+**/node_modules/
+
+# ===== User runtime data (photos & generated thumbnails/index) =====
+# Ignore everything inside storage/ ...
+**/storage/*
+# ... but keep the placeholder so the empty dir is tracked
+!**/storage/.gitkeep
+
+# ===== Build / release output =====
+release/
+dist/
+**/release/
+**/dist/
+*.exe
+
+# ===== Logs & OS junk =====
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# ===== Editor =====
+.vscode/
+.idea/
+
+# ===== Claude Code workspace (not part of project) =====
+.claude/
