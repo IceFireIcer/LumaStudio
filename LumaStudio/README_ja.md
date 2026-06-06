@@ -94,14 +94,14 @@ PORT=8080 npm start
 ### Windows インストーラー（bat スクリプト）
 
 ```
-git clone -b releases https://github.com/IceFireIcer/LumaStudio.git
+git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 install.bat          # %LOCALAPPDATA%\LumaStudio にインストール + デスクトップショートカット作成
 ```
 
 デスクトップショートカットをダブルクリックで起動。スクリプトは Node.js が未インストールの場合、自動的に検出・インストールします（winget または Chocolatey 経由）。
 
-### Electron デスクトップ版（開発中）
+### Electron デスクトップ版
 
 ```
 git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
@@ -110,7 +110,7 @@ npm install
 npm run electron
 ```
 
-> **注意**: Electron ビルドは現在ブロックされています。詳細は [ROADMAP.md](ROADMAP.md) をご覧ください。
+> **注意**: Electron 版は現在起動とビルドが可能です。ソースコードは `electron` ブランチ、Windows ビルド成果物は `electron-releases` ブランチにあります。
 
 ---
 
@@ -119,7 +119,7 @@ npm run electron
 ```
 LumaStudio/
 ├── server.js              # Express バックエンド + sharp パイプライン + REST API
-├── electron-main.mjs      # Electron メインプロセス（ESM）
+├── electron-main.cjs      # Electron メインプロセス（CJS）
 ├── package.json
 ├── public/
 │   ├── index.html         # SPA シェル

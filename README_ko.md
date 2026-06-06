@@ -101,7 +101,7 @@ install.bat          # %LOCALAPPDATA%\LumaStudio에 설치 + 바탕화면 바로
 
 바탕화면 바로가기를 더블클릭하여 시작. 스크립트는 Node.js가 없으면 자동으로 감지하고 설치합니다 (winget 또는 Chocolatey 경유).
 
-### Electron 데스크톱 (개발 중)
+### Electron 데스크톱
 
 ```
 git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
@@ -110,7 +110,7 @@ npm install
 npm run electron
 ```
 
-> **참고**: Electron 빌드는 현재 차단되어 있습니다. 자세한 내용은 [ROADMAP.md](ROADMAP.md)를 참조하세요.
+> **참고**: Electron 버전은 이제 실행 및 빌드가 가능합니다. 소스 코드는 `electron` 브랜치에 있고, Windows 빌드 산출물은 `electron-releases` 브랜치에 있습니다.
 
 ---
 
@@ -119,7 +119,7 @@ npm run electron
 ```
 LumaStudio/
 ├── server.js              # Express 백엔드 + sharp 파이프라인 + REST API
-├── electron-main.mjs      # Electron 메인 프로세스 (ESM)
+├── electron-main.cjs      # Electron 메인 프로세스 (CJS)
 ├── package.json
 ├── public/
 │   ├── index.html         # SPA 셸

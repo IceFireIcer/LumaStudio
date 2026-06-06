@@ -94,14 +94,14 @@ PORT=8080 npm start
 ### Windows installer (bat)
 
 ```
-git clone -b releases https://github.com/IceFireIcer/LumaStudio.git
+git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 install.bat          # installs to %LOCALAPPDATA%\LumaStudio + desktop shortcut
 ```
 
 Double-click the desktop shortcut to launch. The script auto-detects and installs Node.js if missing (via winget or Chocolatey).
 
-### Electron (work in progress)
+### Electron Desktop
 
 ```
 git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
@@ -110,7 +110,7 @@ npm install
 npm run electron
 ```
 
-> **Note**: The Electron build is currently blocked. See [ROADMAP.md](ROADMAP.md) for details.
+> **Note**: The Electron version can now launch and build successfully. Source code is on the `electron` branch, and Windows build artifacts are on the `electron-releases` branch.
 
 ---
 
@@ -119,7 +119,7 @@ npm run electron
 ```
 LumaStudio/
 ├── server.js              # Express backend + sharp pipeline + REST API
-├── electron-main.mjs      # Electron entry point (ESM)
+├── electron-main.cjs      # Electron entry point (CJS)
 ├── package.json
 ├── public/
 │   ├── index.html         # SPA shell

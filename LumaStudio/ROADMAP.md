@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status, known blockers, and planned features for Luma Studio.
+Current status, completed milestones, and planned features for Luma Studio.
 
 ---
 
@@ -9,31 +9,20 @@ Current status, known blockers, and planned features for Luma Studio.
 | Branch | Content | Status |
 |--------|---------|--------|
 | `main` | Source code (development) | ✅ Stable |
-| `releases` | Windows bat installer (one-click install/launch/uninstall) | ✅ Stable |
-| `electron` | Electron desktop app source | ⚠️ Blocked |
-| `electron-releases` | Electron build artifacts (.exe installer) | ⏳ Pending |
+| `windows-releases` | Windows bat installer (one-click install/launch/uninstall) | ✅ Stable |
+| `electron` | Electron desktop app source | ✅ Buildable |
+| `electron-releases` | Electron build artifacts (.exe installer) | ✅ Available |
 
 ---
 
-## Known Issues
+## Electron Status
 
-### Electron Desktop App (Blocked)
+The Electron desktop version is now fixed and buildable.
 
-**Goal**: Open app = start server + open window; close window = stop server + exit.
-
-**Problem**: `electron-main.mjs` (Express server + BrowserWindow) is written and functional in principle, but **Electron 35's module resolution in ESM mode** prevents `import { app } from 'electron'` from working correctly in the development environment. The process runs under Electron (confirmed via `process.versions.electron`) but the import returns unexpected results.
-
-**Attempted fixes**:
-1. `require('electron')` → returns binary path string instead of module object (CJS)
-2. `require('electron/main')` → `Cannot find module`
-3. `process._linkedBinding('electron_common')` → `No such binding` + segfault
-4. ESM migration (`electron-main.cjs` → `electron-main.mjs`) → resolved `"type": "module"` conflicts but import still fails
-
-**Possible solutions** (unexplored):
-1. **Downgrade Electron** to v25 or v26 where `require('electron')` works in CJS
-2. **ESM mode with `--experimental-require-module`** flag
-3. **`electron/main` subpath** — check `node_modules/electron/package.json` `exports` field
-4. **Packaged environment** — test in `electron-builder` output (binary behavior may differ from dev)
+- App launch works with the dedicated Electron entrypoint
+- Windows builds can be produced successfully
+- Source code lives on the `electron` branch
+- Windows build artifacts live on the `electron-releases` branch
 
 ---
 
@@ -62,8 +51,6 @@ Current status, known blockers, and planned features for Luma Studio.
 ## Planned
 
 ### High Priority
-- [ ] **Fix Electron desktop app** — resolve module import issue
-- [ ] **Package as Windows installer (.exe)** — via `electron-builder` NSIS / portable
 - [ ] **Batch processing** — apply same edit parameters to multiple photos
 
 ### Medium Priority

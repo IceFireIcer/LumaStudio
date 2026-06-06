@@ -94,14 +94,14 @@ PORT=8080 npm start
 ### Windows 安装包（bat 脚本）
 
 ```
-git clone -b releases https://github.com/IceFireIcer/LumaStudio.git
+git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 install.bat          # 安装到 %LOCALAPPDATA%\LumaStudio + 创建桌面快捷方式
 ```
 
 双击桌面快捷方式即可启动。脚本会自动检测并安装 Node.js（通过 winget 或 Chocolatey）。
 
-### Electron 桌面版（开发中）
+### Electron 桌面版
 
 ```
 git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
@@ -110,7 +110,7 @@ npm install
 npm run electron
 ```
 
-> **注意**：Electron 版目前存在模块导入问题，尚未修复。详见 [ROADMAP.md](ROADMAP.md)。
+> **注意**：Electron 版已可启动并构建。源码位于 `electron` 分支，Windows 构建产物位于 `electron-releases` 分支。
 
 ---
 
@@ -119,7 +119,7 @@ npm run electron
 ```
 LumaStudio/
 ├── server.js              # Express 后端 + sharp 图像管线 + REST API
-├── electron-main.mjs      # Electron 主进程入口（ESM）
+├── electron-main.cjs      # Electron 主进程入口（CJS）
 ├── package.json
 ├── public/
 │   ├── index.html         # SPA 外壳

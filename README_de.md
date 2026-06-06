@@ -101,7 +101,7 @@ install.bat          # Installiert nach %LOCALAPPDATA%\LumaStudio + Desktop-Verk
 
 Doppelklick auf die Desktop-Verknüpfung zum Starten. Das Skript erkennt und installiert Node.js automatisch bei Bedarf (über winget oder Chocolatey).
 
-### Electron (in Entwicklung)
+### Electron Desktop
 
 ```
 git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
@@ -110,7 +110,7 @@ npm install
 npm run electron
 ```
 
-> **Hinweis**: Der Electron-Build ist derzeit blockiert. Details in [ROADMAP.md](ROADMAP.md).
+> **Hinweis**: Die Electron-Version kann jetzt erfolgreich gestartet und gebaut werden. Der Quellcode liegt im Branch `electron`, die Windows-Build-Artefakte im Branch `electron-releases`.
 
 ---
 
@@ -119,7 +119,7 @@ npm run electron
 ```
 LumaStudio/
 ├── server.js              # Express-Backend + sharp-Pipeline + REST-API
-├── electron-main.mjs      # Electron-Einstiegspunkt (ESM)
+├── electron-main.cjs      # Electron-Einstiegspunkt (CJS)
 ├── package.json
 ├── public/
 │   ├── index.html         # SPA-Shell
