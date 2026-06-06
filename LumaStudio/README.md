@@ -133,6 +133,34 @@ LumaStudio/
 
 ---
 
+## Data Storage
+
+Luma Studio uses **plain JSON files** for all data — no database server required:
+
+- `storage/data/db.json` — Photos metadata and album collections
+- `storage/data/settings.json` — User preferences and runtime settings
+
+All photos are stored as real files in `storage/uploads/`, thumbnails in `storage/thumbs/`. Delete the `storage/` folder to reset everything.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | [Express](https://expressjs.com/) |
+| Image processing | [sharp](https://sharp.pixelplumbing.com/) (libvips) |
+| EXIF read | [exifr](https://github.com/MikeKovarik/exifr) |
+| EXIF write | [piexifjs](https://github.com/hMatoba/piexifjs) |
+| Uploads | [multer](https://github.com/expressjs/multer) |
+| ZIP | [yazl](https://github.com/thejoshwolfe/yazl) |
+| ID generation | [nanoid](https://github.com/ai/nanoid) |
+| Desktop | [Electron](https://www.electronjs.org/) |
+| Front-end | Vanilla JavaScript / HTML / CSS (zero framework, zero build step) |
+| Data storage | JSON files (`db.json`, `settings.json`) — no database required |
+
+---
+
 ## API Reference
 
 | Method | Endpoint | Description |
@@ -182,21 +210,6 @@ LumaStudio/
   "mode":      "copy"   // or "overwrite"
 }
 ```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | [Express](https://expressjs.com/) |
-| Image processing | [sharp](https://sharp.pixelplumbing.com/) (libvips) |
-| EXIF read | [exifr](https://github.com/MikeKovarik/exifr) |
-| EXIF write | [piexifjs](https://github.com/hMatoba/piexifjs) |
-| Uploads | [multer](https://github.com/expressjs/multer) |
-| ZIP | [yazl](https://github.com/thejoshwolfe/yazl) |
-| Desktop | [Electron](https://www.electronjs.org/) |
-| Front-end | Vanilla JavaScript / HTML / CSS (zero framework, zero build step) |
 
 ---
 
