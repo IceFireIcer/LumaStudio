@@ -19,7 +19,8 @@ const path = require('path');
 const { ZipFile } = require('yazl');
 const { createRequire } = require('module');
 
-const __dirname_app = app.isPackaged
+const APP_ROOT = __dirname;
+const DATA_ROOT = app.isPackaged
   ? path.dirname(process.execPath)
   : __dirname;
 
@@ -27,9 +28,9 @@ sharp.cache(false);
 
 /* ============ 目录与数据 ============ */
 const DIRS = {
-  uploads: path.join(__dirname_app, 'storage', 'uploads'),
-  thumbs: path.join(__dirname_app, 'storage', 'thumbs'),
-  data: path.join(__dirname_app, 'storage', 'data'),
+  uploads: path.join(DATA_ROOT, 'storage', 'uploads'),
+  thumbs: path.join(DATA_ROOT, 'storage', 'thumbs'),
+  data: path.join(DATA_ROOT, 'storage', 'data'),
 };
 for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 
@@ -108,7 +109,7 @@ async function buildMeta(filePath, id, original) {
 /* ============ Express 服务器 ============ */
 const appServer = express();
 appServer.use(express.json({ limit: '2mb' }));
-appServer.use(express.static(path.join(__dirname_app, 'public')));
+appServer.use(express.static(path.join(APP_ROOT, 'public')));
 appServer.get('/files/:file', (req, res, next) => {
   const filePath = path.join(DIRS.uploads, path.basename(req.params.file));
   if (!fs.existsSync(filePath)) return next();
@@ -124,7 +125,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 // ---- 所有 API 端点(与 server.js 一致) ----
 appServer.get('/api/info', (req, res) => {
   let total = 0; for (const p of db.photos) total += p.size || 0;
-  res.json({ name: 'Luma Studio', nameCN: '光影工作室', version: '1.0.0', author: 'IceFire_Icer', year: 2026, node: process.version, sharp: sharp.versions || null, photoCount: db.photos.length, storageBytes: total, uptime: Math.floor(process.uptime()), pid: process.pid });
+  res.json({ name: 'Luma Studio', nameCN: '光影工作室', version: app.getVersion(), author: 'IceFire_Icer', year: 2026, node: process.version, sharp: sharp.versions || null, photoCount: db.photos.length, storageBytes: total, uptime: Math.floor(process.uptime()), pid: process.pid });
 });
 appServer.get('/api/photos', (req, res) => { res.json([...db.photos].sort((a, b) => b.time - a.time)); });
 appServer.get('/api/photos/:id', (req, res) => { const p = db.photos.find(x => x.id === req.params.id); if (!p) return res.status(404).json({ error: '未找到' }); res.json(p); });
@@ -283,7 +284,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Luma Studio · 光影工作室',
-    icon: path.join(__dirname_app, 'public', 'favicon.ico'),
+    icon: path.join(APP_ROOT, 'public', 'favicon.ico'),
     backgroundColor: '#ffffff',
     webPreferences: {
       nodeIntegration: false,

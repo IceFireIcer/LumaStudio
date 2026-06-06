@@ -153,7 +153,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // 读取 package.json 版本号(兼容 ESM)
 const require = createRequire(import.meta.url);
-const VERSION = (() => { try { return require('./package.json').version; } catch { return '1.0.0'; } })();
+const VERSION = (() => { try { return require('./package.json').version; } catch { return '1.0.2'; } })();
 
 /* ---------- 关于 / 系统信息 ---------- */
 app.get('/api/info', (req, res) => {
