@@ -19,7 +19,8 @@ const path = require('path');
 const { ZipFile } = require('yazl');
 const { createRequire } = require('module');
 
-const __dirname_app = app.isPackaged
+const APP_ROOT = __dirname;
+const DATA_ROOT = app.isPackaged
   ? path.dirname(process.execPath)
   : __dirname;
 
@@ -27,9 +28,9 @@ sharp.cache(false);
 
 /* ============ 目录与数据 ============ */
 const DIRS = {
-  uploads: path.join(__dirname_app, 'storage', 'uploads'),
-  thumbs: path.join(__dirname_app, 'storage', 'thumbs'),
-  data: path.join(__dirname_app, 'storage', 'data'),
+  uploads: path.join(DATA_ROOT, 'storage', 'uploads'),
+  thumbs: path.join(DATA_ROOT, 'storage', 'thumbs'),
+  data: path.join(DATA_ROOT, 'storage', 'data'),
 };
 for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 
@@ -108,7 +109,7 @@ async function buildMeta(filePath, id, original) {
 /* ============ Express 服务器 ============ */
 const appServer = express();
 appServer.use(express.json({ limit: '2mb' }));
-appServer.use(express.static(path.join(__dirname_app, 'public')));
+appServer.use(express.static(path.join(APP_ROOT, 'public')));
 appServer.get('/files/:file', (req, res, next) => {
   const filePath = path.join(DIRS.uploads, path.basename(req.params.file));
   if (!fs.existsSync(filePath)) return next();
@@ -283,7 +284,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Luma Studio · 光影工作室',
-    icon: path.join(__dirname_app, 'public', 'favicon.ico'),
+    icon: path.join(APP_ROOT, 'public', 'favicon.ico'),
     backgroundColor: '#ffffff',
     webPreferences: {
       nodeIntegration: false,
