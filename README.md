@@ -1,6 +1,6 @@
 # Luma Studio — Production Build
 
-当前版本：**v1.0.2**
+当前版本：**v1.0.3**
 
 ## 本次修复
 
