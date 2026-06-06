@@ -90,17 +90,19 @@ Then open **http://localhost:3000** in your browser.
 
 ## 🪟 Electron Desktop Release
 
-Current desktop release line: **v1.0.1**
+Current desktop release line: **v1.0.2**
 
-### What's fixed in v1.0.1
-- Fixed the packaged Electron app homepage issue where the app could show `Cannot GET /`
-- Separated bundled resource path resolution from writable data path resolution
+### What's fixed in v1.0.2
+- Fixed the front-end script mismatch that caused the portable Electron build to initialize with page errors
+- Fixed the issue where buttons appeared clickable in the portable build but had no actual behavior after startup
+- Synced the Electron front-end bundle with the current main branch UI and interaction logic
+- Kept packaged app resources and writable runtime data paths separated correctly
 - Fixed Windows Electron launch behavior by clearing `ELECTRON_RUN_AS_NODE` contamination
-- Verified the packaged desktop app can serve both `/` and `/api/info` correctly
+- Verified the packaged desktop app can serve `/`, `/api/info`, and normal in-app view switching correctly
 
 ### Recommended Windows downloads
-- **Installer**: `Luma Studio Setup 1.0.1.exe`
-- **Portable**: `Luma Studio 1.0.1.exe`
+- **Installer**: `Luma Studio Setup 1.0.2.exe`
+- **Portable**: `Luma Studio 1.0.2.exe`
 
 The installer is recommended for most users. The portable build is suitable for direct use without installation.
 

@@ -1,6 +1,6 @@
 {
   "name": "luma-studio",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A beautiful, self-hosted photo viewer and Lightroom-style image editor with a Node.js backend.",
   "type": "module",
   "main": "electron-main.cjs",
@@ -48,6 +48,7 @@
     },
     "files": [
       "electron-main.cjs",
+      "electron-launch.cjs",
       "public/**/*",
       "storage/.gitkeep",
       "package.json",

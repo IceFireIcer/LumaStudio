@@ -8,6 +8,7 @@ const api = {
 };
 const fmtSize = n => n < 1024 ? n+' B' : n < 1048576 ? (n/1024).toFixed(1)+' KB' : (n/1048576).toFixed(2)+' MB';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// 触发浏览器下载某张照片的原图文件
 function downloadPhoto(p){
   const a = document.createElement('a');
   a.href = '/files/' + p.file + '?download=1';
@@ -42,6 +43,7 @@ function switchView(name){
   if(name==='settings') loadStats();
   if(name==='about') loadAbout();
   if(name==='albums'){ activeAlbumId=null; $('#albumDetail').hidden=true; $('#albumsGrid').style.display=''; loadAlbums(); }
+  // 编辑器 / 信息 页若没有已选照片,显示空状态提示而不是破图
   if(name==='editor'){
     const has = !!current;
     $('#editorWrap').classList.toggle('hidden', !has);
@@ -96,87 +98,105 @@ function renderGrid(){
     card.innerHTML = `
       <div class="sel-check" title="点击选中/取消">${selected.has(p.id)?'✓':''}</div>
       <img src="/thumbs/${p.id}.webp?v=${p.time}" alt="${esc(p.name)}" loading="lazy">
-      <div class="acts">
-        <button class="mini" onclick="openLightbox(${i})">👁</button>
-        <button class="mini" onclick="openEditorById('${p.id}')">🎨</button>
-        <button class="mini" onclick="downloadPhoto({file:'${p.file}',name:'${esc(p.name)}'})">⬇</button>
-      </div>
-      <div class="stars">${starStr}</div>
+      <div class="badge">${p.width}×${p.height}</div>
+      <div class="stars-badge${p.stars>0?' has':''}">${starStr}</div>
       ${flagHtml}
-      <div class="name">${esc(p.name)}</div>
-    `;
-    card.onclick = e=>{
-      if(e.target.classList.contains('sel-check') || e.target.classList.contains('mini')) return;
-      if(e.ctrlKey || e.metaKey){
-        toggleSelect(p.id);
-      } else {
-        openLightbox(i);
-      }
-    };
+      <div class="acts">
+        <button class="mini edit" title="编辑">✎</button>
+        <button class="mini info" title="信息">ⓘ</button>
+        <button class="mini dl" title="下载">⬇</button>
+        <button class="mini del" title="删除">✕</button>
+      </div>
+      <div class="meta">${esc(p.name)} · ${fmtSize(p.size)}</div>`;
+    // 选中:点复选框
+    card.querySelector('.sel-check').onclick = e=>{ e.stopPropagation(); toggleSelect(p.id, card); };
+    // 灯箱:点图片(非复选框区域)
+    card.querySelector('img').onclick = ()=>openLightbox(i);
+    card.querySelector('.edit').onclick = e=>{e.stopPropagation(); openEditor(p);};
+    card.querySelector('.info').onclick = e=>{e.stopPropagation(); openExif(p);};
+    card.querySelector('.dl').onclick = e=>{e.stopPropagation(); downloadPhoto(p);};
+    card.querySelector('.del').onclick = e=>{e.stopPropagation(); delPhoto(p, card);};
     grid.appendChild(card);
   });
 }
 
-/* ============ 搜索与筛选 ============ */
-let searchTimer;
-$('#searchInput').addEventListener('input', ()=>{
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadPhotos, 300);
-});
-$('#sortSelect').addEventListener('change', loadPhotos);
-$('#filterSelect').addEventListener('change', loadPhotos);
-$('#formatFilter').addEventListener('change', loadPhotos);
+async function delPhoto(p, card){
+  card.classList.add('removing');
+  await new Promise(r=>setTimeout(r,320));
+  await api.del('/api/photos/'+p.id);
+  photos = photos.filter(x=>x.id!==p.id);
+  renderGrid();
+  $('#storageMini').textContent = `${photos.length} 张照片`;
+  toast('已删除');
+}
 
-/* ============ 多选与批量操作 ============ */
-const batchBar = $('#batchBar');
-function toggleSelect(id){
-  if(selected.has(id)) selected.delete(id);
-  else selected.add(id);
-  updateBatchBar();
-  if(selected.has(id)) $('.card[data-id="'+id+'"]').classList.add('selected');
-  else $('.card[data-id="'+id+'"]').classList.remove('selected');
+/* ---- 上传 ---- */
+const fileInput = $('#fileInput'), dropzone = $('#dropzone');
+$('#uploadBtn').onclick = ()=>fileInput.click();
+dropzone.onclick = ()=>fileInput.click();
+fileInput.onchange = e=>{ uploadFiles(e.target.files); fileInput.value=''; };
+
+['dragenter','dragover'].forEach(ev=>dropzone.addEventListener(ev,e=>{e.preventDefault();dropzone.classList.add('drag')}));
+['dragleave','drop'].forEach(ev=>dropzone.addEventListener(ev,e=>{e.preventDefault();dropzone.classList.remove('drag')}));
+dropzone.addEventListener('drop',e=>uploadFiles(e.dataTransfer.files));
+window.addEventListener('dragover',e=>e.preventDefault());
+window.addEventListener('drop',e=>e.preventDefault());
+
+async function uploadFiles(list){
+  const files = [...list].filter(f=>f.type.startsWith('image/'));
+  if(!files.length){ toast('请选择图片文件', true); return; }
+  const fd = new FormData();
+  files.forEach(f=>fd.append('photos', f));
+  const bar = $('#uploadProgress .bar');
+  bar.style.width='15%';
+  try{
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST','/api/upload');
+    xhr.upload.onprogress = e=>{ if(e.lengthComputable) bar.style.width = (e.loaded/e.total*90+5)+'%'; };
+    xhr.onload = async ()=>{
+      bar.style.width='100%';
+      setTimeout(()=>bar.style.width='0', 500);
+      await loadPhotos();
+      toast(`已上传 ${files.length} 张照片 ✓`);
+    };
+    xhr.onerror = ()=>{ toast('上传失败', true); bar.style.width='0'; };
+    xhr.send(fd);
+  }catch(e){ toast('上传失败:'+e.message, true); }
 }
-function updateBatchBar(){
-  const n = selected.size;
-  batchBar.classList.toggle('show', n>0);
-  $('#batchCount').textContent = `已选择 ${n} 张`;
-}
-$('#selectAll').onclick = ()=>{
-  photos.forEach(p=>{ selected.add(p.id); $('.card[data-id="'+p.id+'"]').classList.add('selected'); });
-  updateBatchBar();
-};
-$('#selectNone').onclick = ()=>{
-  selected.clear();
-  $$('.card').forEach(c=>c.classList.remove('selected'));
-  updateBatchBar();
+
+$('#clearAllBtn').onclick = $('#clearStorage').onclick = async ()=>{
+  if(!photos.length) return;
+  if(!confirm('确定清空全部照片?此操作不可恢复。')) return;
+  await api.del('/api/photos');
+  photos = []; renderGrid(); loadStats();
+  $('#storageMini').textContent = '0 张照片';
+  toast('已清空');
 };
 
 /* ============ 灯箱 ============ */
-const lightbox = $('#lightbox'), lbImg = $('#lbImg');
-function openLightbox(idx){
-  lbIndex = idx;
-  const p = photos[idx];
-  if(!p) return;
-  lbImg.src = '/files/'+p.file;
+const lightbox = $('#lightbox');
+function openLightbox(i){
+  lbIndex = i; const p = photos[i];
+  $('#lbImg').src = '/files/'+p.file+'?v='+p.time;
   $('#lbCap').textContent = `${p.name} · ${p.width}×${p.height} · ${fmtSize(p.size)}`;
   lightbox.classList.add('open');
-  document.body.style.overflow = 'hidden';
 }
-function closeLightbox(){
-  lightbox.classList.remove('open');
-  document.body.style.overflow = '';
-}
+function closeLightbox(){ lightbox.classList.remove('open'); }
 function navLb(d){
-  lbIndex = (lbIndex + d + photos.length) % photos.length;
-  openLightbox(lbIndex);
+  if(!photos.length) return;
+  lbIndex = (lbIndex+d+photos.length)%photos.length;
+  const p = photos[lbIndex], img = $('#lbImg');
+  img.style.opacity='0';
+  setTimeout(()=>{ img.src='/files/'+p.file+'?v='+p.time; $('#lbCap').textContent=`${p.name} · ${p.width}×${p.height} · ${fmtSize(p.size)}`; img.style.opacity='1'; },150);
 }
+$('#lbClose').onclick = closeLightbox;
 $('#lbPrev').onclick = ()=>navLb(-1);
 $('#lbNext').onclick = ()=>navLb(1);
-$('#lbClose').onclick = closeLightbox;
-$('#lbDownload').onclick = ()=>{ downloadPhoto(photos[lbIndex]); };
-$('#lbEdit').onclick = ()=>{ closeLightbox(); openEditorById(photos[lbIndex].id); };
+$('#lbEdit').onclick = ()=>{ closeLightbox(); openEditor(photos[lbIndex]); };
+$('#lbInfo').onclick = ()=>{ closeLightbox(); openExif(photos[lbIndex]); };
+$('#lbDownload').onclick = ()=>{ if(photos[lbIndex]) downloadPhoto(photos[lbIndex]); };
 $('#lbRename').onclick = async ()=>{
-  const p = photos[lbIndex];
+  const p = photos[lbIndex]; if(!p) return;
   const name = prompt('重命名照片', p.name);
   if(name == null) return;
   const trimmed = name.trim();
@@ -257,12 +277,6 @@ function openEditor(p){
   estimateSize();
 }
 
-async function openEditorById(id){
-  const p = photos.find(x=>x.id===id);
-  if(!p){ toast('未找到照片', true); return; }
-  openEditor(p);
-}
-
 function resetSliders(){
   $('#brightness').value=100; $('#contrast').value=100; $('#saturation').value=100;
   $('#hue').value=0; $('#sharpen').value=0; $('#blur').value=0; $('#grayscale').checked=false;
@@ -277,6 +291,7 @@ function updateSliderLabels(){
   $('#vBlur').textContent=$('#blur').value;
 }
 
+// 实时 CSS 滤镜预览(裁剪/旋转由 transform 体现)
 function applyFilter(){
   const b=$('#brightness').value/100, c=$('#contrast').value/100, s=$('#saturation').value/100;
   const h=$('#hue').value, bl=$('#blur').value/4, gray=$('#grayscale').checked?1:0;
@@ -290,6 +305,7 @@ function applyFilter(){
   editImg.style.transform = tr.join(' ');
 }
 
+// 调整面板事件
 ['brightness','contrast','saturation','hue','sharpen','blur'].forEach(id=>{
   $('#'+id).addEventListener('input',()=>{ saveEditState(); updateSliderLabels(); applyFilter(); });
 });
@@ -303,6 +319,7 @@ $('#resetAdjust').onclick = ()=>{
   toast('已重置全部');
 };
 
+/* ---- 滤镜预设 ---- */
 const PRESETS = {
   none:   { brightness:100, contrast:100, saturation:100, hue:0, grayscale:false },
   vivid:  { brightness:105, contrast:112, saturation:140, hue:0, grayscale:false },
@@ -322,11 +339,13 @@ $$('#presets .chip').forEach(c=>c.onclick=()=>{
   estimateSize();
 });
 
+// 面板 tab
 $$('.ptab').forEach(t=>t.onclick=()=>{
   $$('.ptab').forEach(x=>x.classList.toggle('active', x===t));
   $$('.ptab-panel').forEach(p=>p.classList.toggle('active', p.dataset.ptab===t.dataset.ptab));
 });
 
+// 变换
 $('#rotL').onclick = ()=>{ saveEditState(); edit.rotate=(edit.rotate-90)%360; applyFilter(); };
 $('#rotR').onclick = ()=>{ saveEditState(); edit.rotate=(edit.rotate+90)%360; applyFilter(); };
 $('#flipH').onclick = ()=>{ saveEditState(); edit.flipH=!edit.flipH; applyFilter(); };
@@ -346,6 +365,7 @@ $$('[data-scale]').forEach(b=>b.onclick=()=>{
   toast(`尺寸设为 ${Math.round(s*100)}%`);
 });
 
+// 质量/格式 → 预估
 $('#quality').addEventListener('input',()=>{ $('#vQuality').textContent=$('#quality').value+'%'; estimateSize(); });
 $('#outFormat').addEventListener('change', estimateSize);
 $('#overwrite').addEventListener('change',e=>{
@@ -362,6 +382,7 @@ function estimateSize(){
   }, 350);
 }
 
+/* ---- 裁剪 ---- */
 let cropping = false, cropRatio = 'free';
 const cropOverlay = $('#cropOverlay'), cropBox = $('#cropBox');
 
@@ -389,435 +410,426 @@ function initCropBox(){
   Object.assign(cropBox.style,{left:left+'px',top:top+'px',width:w+'px',height:h+'px'});
 }
 
-let dragging = false, resizing = false, dragStart = {x:0,y:0}, boxStart = {x:0,y:0,w:0,h:0};
-cropBox.addEventListener('mousedown', e=>{ if(e.target.classList.contains('ch')) return; dragging=true; dragStart={x:e.clientX,y:e.clientY}; const r=cropBox.getBoundingClientRect(); boxStart={x:r.left,y:r.top,w:r.width,h:r.height}; });
-document.addEventListener('mousemove', e=>{
-  if(!cropping) return;
-  if(dragging){
-    const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
-    const r = editImg.getBoundingClientRect();
-    const stage = $('#canvasStage').getBoundingClientRect();
-    let left = boxStart.x + dx, top = boxStart.y + dy;
-    left = Math.max(stage.left, Math.min(left, stage.left+stage.width-boxStart.w));
-    top = Math.max(stage.top, Math.min(top, stage.top+stage.height-boxStart.h));
-    Object.assign(cropBox.style,{left:left+'px',top:top+'px'});
-    e.preventDefault();
-  }
-  if(resizing){
-    const r = editImg.getBoundingClientRect();
-    const stage = $('#canvasStage').getBoundingClientRect();
-    let {x,y,w,h} = boxStart;
-    const min=60;
-    if(resizing.includes('e')){ w = Math.max(min, e.clientX - x); }
-    if(resizing.includes('s')){ h = Math.max(min, e.clientY - y); }
-    if(resizing.includes('w')){ const dw = x + w - e.clientX; x = Math.min(x, x + w - min); w = Math.max(min, w - dw); }
-    if(resizing.includes('n')){ const dh = y + h - e.clientY; y = Math.min(y, y + h - min); h = Math.max(min, h - dh); }
-    w = Math.min(w, stage.left+stage.width-x); h = Math.min(h, stage.top+stage.height-y);
-    if(cropRatio!=='free'){
-      const ratio=parseFloat(cropRatio);
-      if(resizing.includes('e') || resizing.includes('w')){ h = Math.round(w/ratio); }
-      else{ w = Math.round(h*ratio); }
-    }
-    Object.assign(cropBox.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px'});
-    e.preventDefault();
-  }
+// 裁剪框拖拽 & 缩放
+let cropDrag = null;
+cropBox.addEventListener('pointerdown', e=>{
+  const handle = e.target.classList.contains('ch') ? e.target.classList[1] : 'move';
+  cropDrag = { handle, sx:e.clientX, sy:e.clientY,
+    l:parseFloat(cropBox.style.left), t:parseFloat(cropBox.style.top),
+    w:cropBox.offsetWidth, h:cropBox.offsetHeight };
+  cropBox.setPointerCapture(e.pointerId);
+  e.preventDefault();
 });
-document.addEventListener('mouseup', ()=>{ dragging=false; resizing=false; });
-$$('.ch').forEach(c=>c.addEventListener('mousedown',e=>{
-  resizing = c.classList[1];
-  const r=cropBox.getBoundingClientRect();
-  boxStart={x:r.left,y:r.top,w:r.width,h:r.height};
-}));
+cropBox.addEventListener('pointermove', e=>{
+  if(!cropDrag) return;
+  const dx=e.clientX-cropDrag.sx, dy=e.clientY-cropDrag.sy;
+  let {l,t,w,h,handle}=cropDrag;
+  if(handle==='move'){ l+=dx; t+=dy; }
+  else{
+    if(handle.includes('r')) w=cropDrag.w+dx;
+    if(handle.includes('l')){ w=cropDrag.w-dx; l=cropDrag.l+dx; }
+    if(handle.includes('b')) h=cropDrag.h+dy;
+    if(handle.includes('t')){ h=cropDrag.h-dy; t=cropDrag.t+dy; }
+    if(cropRatio!=='free'){ const ratio=parseFloat(cropRatio); h=w/ratio; }
+  }
+  w=Math.max(30,w); h=Math.max(30,h);
+  Object.assign(cropBox.style,{left:l+'px',top:t+'px',width:w+'px',height:h+'px'});
+});
+cropBox.addEventListener('pointerup',()=>cropDrag=null);
 
 $('#applyCrop').onclick = ()=>{
-  const r = cropBox.getBoundingClientRect();
   const imgR = editImg.getBoundingClientRect();
+  const boxR = cropBox.getBoundingClientRect();
   const scaleX = current.width / imgR.width;
   const scaleY = current.height / imgR.height;
   edit.crop = {
-    left: Math.round((r.left - imgR.left) * scaleX),
-    top: Math.round((r.top - imgR.top) * scaleY),
-    width: Math.round(r.width * scaleX),
-    height: Math.round(r.height * scaleY),
+    left: Math.max(0,(boxR.left-imgR.left)*scaleX),
+    top: Math.max(0,(boxR.top-imgR.top)*scaleY),
+    width: Math.min(current.width, boxR.width*scaleX),
+    height: Math.min(current.height, boxR.height*scaleY),
   };
-  cropping = false;
-  cropOverlay.hidden = true;
-  $('#cropRatios').hidden = true;
-  $('#applyCrop').hidden = true;
-  $('#cropToggle').textContent = '✂ 开启裁剪';
-  applyFilter();
-  toast('裁剪已应用');
+  cropping=false; cropOverlay.hidden=true; $('#cropRatios').hidden=true; $('#applyCrop').hidden=true;
+  $('#cropToggle').textContent='✂ 开启裁剪';
+  toast(`已标记裁剪 ${Math.round(edit.crop.width)}×${Math.round(edit.crop.height)}`);
 };
 
+/* ---- 导出 ---- */
+$('#exportBtn').onclick = async ()=>{
+  if(!current) return;
+  const btn = $('#exportBtn'); btn.disabled=true; btn.textContent='处理中…';
+  showLoading();
+  const body = buildEditBody($('#overwrite').checked ? 'overwrite' : 'copy');
+  try{
+    const r = await api.post(`/api/photos/${current.id}/process`, body);
+    if(r.ok){
+      toast(body.mode==='overwrite' ? '已覆盖保存 ✓' : '已另存为新副本 ✓');
+      await loadPhotos();
+      const np = photos.find(x=>x.id===r.photo.id);
+      if(np) openEditor(np);
+    } else toast('处理失败:'+r.error, true);
+  }catch(e){ toast('处理失败:'+e.message, true); }
+  hideLoading();
+  btn.disabled=false; btn.textContent='💾 处理并保存';
+};
+
+// 下载当前编辑结果到本地(不落库,服务器实时处理后回传字节)
+$('#downloadBtn').onclick = async ()=>{
+  if(!current) return;
+  const btn = $('#downloadBtn'); btn.disabled=true; btn.textContent='生成中…';
+  showLoading();
+  const body = buildEditBody('copy');
+  try{
+    const resp = await fetch(`/api/photos/${current.id}/render`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+    });
+    if(!resp.ok){ const j = await resp.json().catch(()=>({})); throw new Error(j.error||'渲染失败'); }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const base = current.name.replace(/\.[^.]+$/, '');
+    a.href = url; a.download = `${base}_edited.${body.output.format}`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('已下载到本地 ✓');
+  }catch(e){ toast('下载失败:'+e.message, true); }
+  hideLoading();
+  btn.disabled=false; btn.textContent='⬇ 下载到本地';
+};
+
+// 从当前 UI 收集编辑参数
 function buildEditBody(mode){
   return {
-    mode,
     adjust:{
-      brightness: $('#brightness').value/100,
-      contrast: $('#contrast').value/100,
-      saturation: $('#saturation').value/100,
-      hue: $('#hue').value,
-      sharpen: +$('#sharpen').value,
-      blur: +$('#blur').value,
-      grayscale: $('#grayscale').checked,
+      brightness:$('#brightness').value/100,
+      saturation:$('#saturation').value/100,
+      hue:+$('#hue').value,
+      contrast:$('#contrast').value/100,
+      sharpen:+$('#sharpen').value,
+      blur:+$('#blur').value,
+      grayscale:$('#grayscale').checked,
     },
     transform:{ rotate:edit.rotate, flipH:edit.flipH, flipV:edit.flipV, crop:edit.crop },
     resize:{ width:+$('#reW').value, height:+$('#reH').value },
     output:{ format:$('#outFormat').value, quality:+$('#quality').value },
+    mode,
   };
 }
 
-$('#exportBtn').onclick = async ()=>{
-  showLoading();
-  const r = await api.post(`/api/photos/${current.id}/process`, buildEditBody($('#overwrite').checked ? 'overwrite' : 'copy'));
-  hideLoading();
+// 双击编辑器底部文件名可重命名
+$('#editName').title = '双击重命名';
+$('#editName').style.cursor = 'pointer';
+$('#editName').ondblclick = async ()=>{
+  if(!current) return;
+  const name = prompt('重命名照片', current.name);
+  if(name == null) return;
+  const trimmed = name.trim();
+  if(!trimmed){ toast('名称不能为空', true); return; }
+  const r = await api.post(`/api/photos/${current.id}/rename`, { name: trimmed });
   if(r.ok){
-    toast($('#overwrite').checked ? '已覆盖原图 ✓' : '已保存副本 ✓');
-    photos = photos.map(p=>p.id===r.photo.id ? r.photo : p);
+    current.name = r.photo.name;
+    $('#editName').textContent = current.name;
     await loadPhotos();
-    openEditor(r.photo);
-  } else {
-    toast(r.error||'处理失败', true);
-  }
-};
-
-$('#downloadBtn').onclick = async ()=>{
-  showLoading();
-  const r = await fetch(`/api/photos/${current.id}/render`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(buildEditBody('copy'))
-  });
-  hideLoading();
-  if(!r.ok){ toast('下载失败', true); return; }
-  const blob = await r.blob();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  const ext = $('#outFormat').value;
-  const base = current.name.replace(/\.[^.]+$/, '');
-  a.download = `${base}_edited.${ext}`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(a.href);
+    toast('已重命名 ✓');
+  } else toast(r.error||'重命名失败', true);
 };
 
 /* ============ EXIF ============ */
-function openExif(p){
+async function openExif(p){
   current = p;
   switchView('exif');
   $('#exifEmpty').classList.remove('show');
   $('#exifWrap').classList.remove('hidden');
-  loadExif(p.id);
+  $('#exifImg').src = '/files/'+p.file + '?t='+Date.now();
+  const list = $('#exifList'); list.innerHTML = '<div class="exif-empty-row">读取中…</div>';
+  const r = await api.get(`/api/photos/${p.id}/exif`);
+  const ex = r.exif || {};
+  // 基本信息总是显示
+  const rows = [
+    ['文件名', p.name], ['格式', (p.format||'').toUpperCase()],
+    ['分辨率', `${p.width} × ${p.height}`], ['文件大小', fmtSize(p.size)],
+  ];
+  const map = {
+    Make:'相机品牌', Model:'相机型号', LensModel:'镜头', FNumber:'光圈', ExposureTime:'快门',
+    ISO:'ISO', FocalLength:'焦距', DateTimeOriginal:'拍摄时间', Artist:'作者', Copyright:'版权',
+    ImageDescription:'描述', Software:'软件', Orientation:'方向',
+    latitude:'纬度', longitude:'经度',
+  };
+  for(const [k,label] of Object.entries(map)){
+    if(ex[k]!=null && ex[k]!==''){
+      let v = ex[k];
+      if(k==='FNumber') v='f/'+v;
+      if(k==='ExposureTime') v=v<=1?`1/${Math.round(1/v)}s`:v+'s';
+      if(k==='FocalLength') v=v+'mm';
+      if(v instanceof Date) v=v.toLocaleString('zh-CN');
+      rows.push([label, String(v)]);
+    }
+  }
+  list.innerHTML = rows.map(([k,v])=>`<div class="exif-item"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('');
+  // 填充可编辑字段
+  $('#exArtist').value = ex.Artist||'';
+  $('#exCopyright').value = ex.Copyright||'';
+  $('#exDesc').value = ex.ImageDescription||'';
+  $('#exDate').value = ex.DateTimeOriginal ? formatExifDate(ex.DateTimeOriginal) : '';
 }
-async function loadExif(id){
-  const r = await api.get(`/api/photos/${id}/exif`);
-  if(!r.ok) return;
-  const exif = r.exif;
-  $('#exifCamera').textContent = exif.Make ? (exif.Model ? `${exif.Make} ${exif.Model}` : exif.Make) : '—';
-  $('#exifLens').textContent = exif.LensModel || exif.Lens || '—';
-  $('#exifAperture').textContent = exif.Aperture ? 'f/'+exif.Aperture.toFixed(1) : '—';
-  $('#exifShutter').textContent = exif.ExposureTime ? formatShutter(exif.ExposureTime) : '—';
-  $('#exifISO').textContent = exif.ISO ? 'ISO '+exif.ISO : '—';
-  $('#exifFocal').textContent = exif.FocalLength ? exif.FocalLength+'mm' : '—';
-  $('#exifDate').textContent = exif.DateTimeOriginal || exif.DateTime || exif.CreateDate || '—';
-  $('#exifGPS').textContent = exif.latitude != null && exif.longitude != null
-    ? `${exif.latitude.toFixed(6)}, ${exif.longitude.toFixed(6)}` : '—';
-  $('#exifArtist').value = exif.Artist || '';
-  $('#exifCopyright').value = exif.Copyright || '';
-  $('#exifDesc').value = exif.ImageDescription || '';
-  const dt = exif.DateTimeOriginal || exif.DateTime || '';
-  $('#exifDatetime').value = dt.replace(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/, '$1-$2-$3T$4:$5:$6');
+function formatExifDate(d){
+  if(d instanceof Date){
+    const p=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+  return String(d);
 }
-function formatShutter(t){
-  if(t >= 1) return t+'s';
-  const f = 1/t;
-  const n = Math.round(f);
-  return n===f ? '1/'+n : '1/'+f.toFixed(1);
-}
-$('#exifPhotoName').onclick = ()=>{ downloadPhoto(current); };
-
 $('#saveExif').onclick = async ()=>{
+  if(!current) return;
   const r = await api.post(`/api/photos/${current.id}/exif`, {
-    artist: $('#exifArtist').value,
-    copyright: $('#exifCopyright').value,
-    description: $('#exifDesc').value,
-    datetime: $('#exifDatetime').value.replace('T', ' '),
+    artist:$('#exArtist').value, copyright:$('#exCopyright').value,
+    description:$('#exDesc').value, datetime:$('#exDate').value,
   });
-  if(r.ok) toast('EXIF 已保存 ✓');
+  if(r.ok){ toast('元数据已保存 ✓'); openExif(current); }
   else toast(r.error||'保存失败', true);
 };
-
 $('#stripExif').onclick = async ()=>{
-  if(!confirm('确定要移除所有元数据吗？此操作不可撤销。')) return;
-  const r = await api.post(`/api/photos/${current.id}/strip-exif`);
-  if(r.ok){ toast('元数据已移除 ✓'); await loadExif(current.id); }
-  else toast(r.error||'操作失败', true);
+  if(!current) return;
+  if(!confirm('确定抹除全部元数据?(将清除相机、GPS、作者等信息)')) return;
+  const btn = $('#stripExif'); btn.disabled=true; btn.textContent='处理中…';
+  showLoading();
+  try {
+    const r = await api.post(`/api/photos/${current.id}/strip-exif`, {});
+    if(r.ok){ toast('元数据已抹除 ✓'); await loadPhotos(); const np=photos.find(x=>x.id===current.id); if(np) openExif(np); }
+    else toast('操作失败', true);
+  } catch(e){ toast('操作失败:'+e.message, true); }
+  hideLoading();
+  btn.disabled=false; btn.textContent='抹除全部元数据';
 };
+$('#dlFromExif').onclick = ()=>{ if(current) downloadPhoto(current); };
 
-/* ============ 相册管理 ============ */
-function renderAlbums(){
-  const list = $('#albumsGrid');
-  list.innerHTML = '';
-  albums.forEach(a=>{
-    const card = document.createElement('div');
-    card.className = 'album-card';
-    card.dataset.id = a.id;
-    card.innerHTML = `
-      <div class="album-thumb">${a.count>0?'📷':'📁'}</div>
-      <div class="album-name">${esc(a.name)}</div>
-      <div class="album-count">${a.count} 张</div>
-    `;
-    card.onclick = ()=>openAlbum(a);
-    list.appendChild(card);
-  });
-}
-
-function openAlbum(a){
-  activeAlbumId = a.id;
-  $('#albumDetail').hidden = false;
-  $('#albumsGrid').style.display = 'none';
-  $('#albumTitle').textContent = a.name;
-  loadPhotos();
-}
-
-$('#backFromAlbum').onclick = ()=>{
-  activeAlbumId = null;
-  $('#albumDetail').hidden = true;
-  $('#albumsGrid').style.display = '';
-  loadPhotos();
-};
-
-$('#createAlbum').onclick = async ()=>{
-  const name = prompt('创建新相册', '新相册');
-  if(name == null) return;
-  const trimmed = name.trim();
-  if(!trimmed){ toast('名称不能为空', true); return; }
-  const r = await api.post('/api/albums', { name: trimmed });
-  if(r.ok){ toast('相册已创建 ✓'); await loadAlbums(); }
-  else toast(r.error||'创建失败', true);
-};
-
-$('#renameAlbum').onclick = async ()=>{
-  if(!activeAlbumId) return;
-  const a = albums.find(x=>x.id===activeAlbumId);
-  if(!a) return;
-  const name = prompt('重命名相册', a.name);
-  if(name == null) return;
-  const trimmed = name.trim();
-  if(!trimmed){ toast('名称不能为空', true); return; }
-  const r = await api.post(`/api/albums/${a.id}/rename`, { name: trimmed });
-  if(r.ok){ a.name = r.album.name; $('#albumTitle').textContent = a.name; toast('已重命名 ✓'); }
-  else toast(r.error||'重命名失败', true);
-};
-
-$('#deleteAlbum').onclick = async ()=>{
-  if(!activeAlbumId) return;
-  const a = albums.find(x=>x.id===activeAlbumId);
-  if(!a) return;
-  if(!confirm(`确定要删除相册「${a.name}」吗？相册中的照片不会被删除。`)) return;
-  const r = await api.del(`/api/albums/${a.id}`);
-  if(r.ok){ toast('相册已删除 ✓'); activeAlbumId=null; $('#albumDetail').hidden=true; $('#albumsGrid').style.display=''; await loadAlbums(); }
-  else toast(r.error||'删除失败', true);
-};
-
-/* ============ 收藏夹添加 ============ */
-async function addToAlbum(photoId, albumId){
-  const r = await api.post(`/api/albums/${albumId}/add`, { ids: [photoId] });
-  if(r.ok) toast('已添加到相册 ✓');
-  else toast(r.error||'添加失败', true);
-}
-
-$('#addToAlbum').onclick = async ()=>{
-  const id = current ? current.id : photos[lbIndex]?.id;
-  if(!id) return;
-  const html = albums.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('');
-  const sel = document.createElement('select');
-  sel.innerHTML = `<option value="">选择相册...</option>${html}`;
-  const dialog = document.createElement('div');
-  dialog.className = 'modal';
-  dialog.innerHTML = `
-    <div class="modal-bg" onclick="this.parentElement.remove()"></div>
-    <div class="modal-body">
-      <h3>添加到相册</h3>
-      <select id="selAlbum" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:12px">${html}</select>
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button class="btn ghost" onclick="this.parentElement.parentElement.parentElement.remove()">取消</button>
-        <button class="btn primary" onclick="addToAlbum('${id}', $('#selAlbum').value); this.parentElement.parentElement.parentElement.remove()">添加</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(dialog);
-};
-
-/* ============ 幻灯片 ============ */
-let slPlaying = false;
-function openSlideshow(){
-  $('#slideshow').hidden = false;
-  document.body.style.overflow = 'hidden';
-  slTimer = setInterval(()=>{ slPlay(); }, 3000);
-  slPlaying = true;
-}
-function closeSlideshow(){
-  $('#slideshow').hidden = true;
-  document.body.style.overflow = '';
-  clearInterval(slTimer);
-  slPlaying = false;
-}
-function slPlay(){
-  if(!slPlaying) return;
-  lbIndex = (lbIndex + 1) % photos.length;
-  updateSlide();
-}
-function updateSlide(){
-  const p = photos[lbIndex];
-  $('#slImg').src = '/files/'+p.file;
-  $('#slInfo').textContent = `${p.name} · ${lbIndex+1}/${photos.length}`;
-}
-$('#slPrev').onclick = ()=>{ lbIndex=(lbIndex-1+photos.length)%photos.length; updateSlide(); };
-$('#slNext').onclick = ()=>{ lbIndex=(lbIndex+1)%photos.length; updateSlide(); };
-$('#slExit').onclick = closeSlideshow;
-
-/* ============ 批量操作 ============ */
-async function batchAction(action){
-  const ids = [...selected];
-  if(ids.length === 0) return;
-  let r;
-  switch(action){
-    case 'pick': r = await api.post('/api/photos/batch/flag', { ids, flag: 'pick' }); break;
-    case 'reject': r = await api.post('/api/photos/batch/flag', { ids, flag: 'reject' }); break;
-    case 'unflag': r = await api.post('/api/photos/batch/flag', { ids, flag: null }); break;
-    case 'stars1': case 'stars2': case 'stars3': case 'stars4': case 'stars5':
-      r = await api.post('/api/photos/batch/stars', { ids, stars: action.replace('stars','') }); break;
-    case 'stars0': r = await api.post('/api/photos/batch/stars', { ids, stars: 0 }); break;
-    case 'delete':
-      if(!confirm(`确定要删除 ${ids.length} 张照片吗？此操作不可撤销。`)) return;
-      r = await api.post('/api/photos/batch/delete', { ids }); break;
-    case 'zip':
-      const zipRes = await fetch('/api/photos/download-zip', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ids })
-      });
-      if(!zipRes.ok){ toast('打包失败', true); return; }
-      const blob = await zipRes.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'LumaStudio_export.zip';
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(a.href);
-      return;
-  }
-  if(r && r.ok){
-    toast(`已处理 ${r.updated||r.deleted||ids.length} 张照片 ✓`);
-    selected.clear();
-    updateBatchBar();
-    await loadPhotos();
-  } else {
-    toast(r?.error||'操作失败', true);
-  }
-}
-$$('#batchBar [data-action]').forEach(b=>b.onclick=()=>batchAction(b.dataset.action));
-
-/* ============ 设置页 ============ */
+/* ============ 设置 ============ */
+const PRESET_COLORS = ['#0071e3','#ff375f','#34c759','#ff9500','#af52de','#5856d6'];
 async function loadSettings(){
   settings = await api.get('/api/settings');
-  $('#defFormat').value = settings.defaultFormat || 'jpeg';
-  $('#defQuality').value = settings.defaultQuality || 82;
-  $('#defQualityVal').textContent = (settings.defaultQuality || 82)+'%';
-  $('#thumbSize').value = settings.thumbSize || 480;
-  $('#accentPicker').value = settings.accent || '#0071e3';
-  document.documentElement.style.setProperty('--accent', settings.accent || '#0071e3');
-}
-
-async function saveSettings(){
-  const r = await api.post('/api/settings', {
-    defaultFormat: $('#defFormat').value,
-    defaultQuality: +$('#defQuality').value,
-    thumbSize: +$('#thumbSize').value,
-    accent: $('#accentPicker').value,
+  $('#setFormat').value = settings.defaultFormat;
+  $('#setQuality').value = settings.defaultQuality;
+  $('#vSetQuality').textContent = settings.defaultQuality+'%';
+  $('#setThumb').value = settings.thumbSize;
+  $('#setAccent').value = settings.accent;
+  applyAccent(settings.accent);
+  // 色板
+  const sw = $('#swatches'); sw.innerHTML='';
+  PRESET_COLORS.forEach(c=>{
+    const d=document.createElement('div'); d.className='sw'+(c===settings.accent?' active':'');
+    d.style.background=c; d.onclick=()=>{ $('#setAccent').value=c; applyAccent(c); $$('.sw').forEach(x=>x.classList.toggle('active',x===d)); };
+    sw.appendChild(d);
   });
-  if(r.ok){
-    settings = r.settings;
-    document.documentElement.style.setProperty('--accent', settings.accent);
-    toast('设置已保存 ✓');
-  } else {
-    toast(r.error||'保存失败', true);
-  }
 }
-
-$('#saveSettings').onclick = saveSettings;
-$('#defQuality').addEventListener('input',()=>{ $('#defQualityVal').textContent = $('#defQuality').value+'%'; });
-$('#accentPicker').addEventListener('input',e=>{
-  document.documentElement.style.setProperty('--accent', e.target.value);
-});
-
-async function loadStats(){
-  const r = await api.get('/api/stats');
-  if(r.ok){
-    $('#statCount').textContent = r.count;
-    $('#statSize').textContent = fmtSize(r.totalSize);
-  }
-}
-
-$('#clearAll').onclick = async ()=>{
-  if(!confirm('确定要清空所有照片吗？此操作不可撤销！')) return;
-  showLoading();
-  const r = await api.del('/api/photos');
-  hideLoading();
-  if(r.ok){
-    photos = [];
-    selected.clear();
-    updateBatchBar();
-    renderGrid();
-    toast('已清空所有照片');
-  } else {
-    toast(r.error||'操作失败', true);
-  }
+function applyAccent(c){ document.documentElement.style.setProperty('--accent', c); }
+$('#setQuality').addEventListener('input',()=>$('#vSetQuality').textContent=$('#setQuality').value+'%');
+$('#setAccent').addEventListener('input',e=>applyAccent(e.target.value));
+$('#saveSettings').onclick = async ()=>{
+  const body = {
+    defaultFormat:$('#setFormat').value,
+    defaultQuality:+$('#setQuality').value,
+    thumbSize:+$('#setThumb').value,
+    accent:$('#setAccent').value,
+  };
+  const r = await api.post('/api/settings', body);
+  if(r.ok){ settings=r.settings; toast('设置已保存 ✓'); }
 };
+async function loadStats(){
+  const s = await api.get('/api/stats');
+  $('#stCount').textContent = s.count+' 张';
+  $('#stSize').textContent = fmtSize(s.totalSize);
+}
 
 /* ============ 关于页 ============ */
 async function loadAbout(){
-  const r = await api.get('/api/info');
-  if(r.ok){
-    $('#aboutVersion').textContent = r.version;
-    $('#aboutNode').textContent = r.node;
-    $('#aboutSharp').textContent = r.sharp?.sharp || '—';
-    $('#aboutVips').textContent = r.sharp?.libvips || '—';
-    $('#aboutPhotos').textContent = r.photoCount;
-    $('#aboutSize').textContent = fmtSize(r.storageBytes);
-    $('#aboutUptime').textContent = formatUptime(r.uptime);
-  }
-}
-function formatUptime(sec){
-  const d = Math.floor(sec/86400);
-  const h = Math.floor((sec%86400)/3600);
-  const m = Math.floor((sec%3600)/60);
-  if(d>0) return `${d}天 ${h}小时 ${m}分钟`;
-  if(h>0) return `${h}小时 ${m}分钟`;
-  return `${m}分钟`;
+  try{
+    const info = await api.get('/api/info');
+    $('#aboutVer').textContent = 'v' + (info.version || '?');
+    $('#aboutNode').textContent = info.node || '—';
+    $('#aboutSharp').textContent = info.sharp ? `v${info.sharp.vips || '?'} (libvips)` : '—';
+    $('#aboutPhotos').textContent = (info.photoCount || 0) + ' 张';
+    $('#aboutStorage').textContent = fmtSize(info.storageBytes || 0);
+    const h=Math.floor(info.uptime/3600), m=Math.floor((info.uptime%3600)/60), s=info.uptime%60;
+    $('#aboutUptime').textContent = h>0 ? `${h}时${m}分${s}秒` : m>0 ? `${m}分${s}秒` : `${s}秒`;
+  } catch(e){ console.error('加载关于信息失败', e); }
 }
 
-/* ============ 评分与标记 ============ */
+/* ============ 选片/多选 ============ */
+function toggleSelect(id, card){
+  if(selected.has(id)){ selected.delete(id); if(card) card.classList.remove('selected'); }
+  else { selected.add(id); if(card) card.classList.add('selected'); }
+  if(card) card.querySelector('.sel-check').textContent = selected.has(id) ? '✓' : '';
+  updateBatchBar();
+}
+function updateBatchBar(){
+  const n = selected.size;
+  $('#batchBar').hidden = n === 0;
+  $('#selCount').textContent = n + ' 张已选';
+}
+$('#batchSelectAll').onclick = ()=>{ photos.forEach(p=>selected.add(p.id)); renderGrid(); updateBatchBar(); };
+$('#batchClearSel').onclick = ()=>{ selected.clear(); renderGrid(); updateBatchBar(); };
+
+/* ---- 搜索/筛选/排序 ---- */
+let searchTimer;
+$('#searchInput').addEventListener('input', ()=>{ clearTimeout(searchTimer); searchTimer = setTimeout(loadPhotos, 300); });
+$('#sortSelect').addEventListener('change', loadPhotos);
+$('#filterSelect').addEventListener('change', loadPhotos);
+$('#formatFilter').addEventListener('change', loadPhotos);
+
+/* ---- 批量操作 ---- */
+$('#batchPick').onclick = async ()=>{
+  const ids = [...selected];
+  await api.post('/api/photos/batch/flag', { ids, flag: 'pick' });
+  toast(`已标记 ${ids.length} 张为精选 ✓`); await loadPhotos();
+};
+$('#batchReject').onclick = async ()=>{
+  const ids = [...selected];
+  await api.post('/api/photos/batch/flag', { ids, flag: 'reject' });
+  toast(`已标记 ${ids.length} 张为排除 ✓`); await loadPhotos();
+};
+$('#batchRate').onclick = async ()=>{
+  const s = prompt('批量评分 (0-5 星,0 为清除):', '5');
+  if(s == null) return;
+  const ids = [...selected];
+  await api.post('/api/photos/batch/stars', { ids, stars: +s });
+  toast(`已对 ${ids.length} 张评分 ✓`); await loadPhotos();
+};
+$('#batchDelete').onclick = async ()=>{
+  const ids = [...selected];
+  if(!confirm(`确定删除选中的 ${ids.length} 张照片?不可恢复。`)) return;
+  showLoading();
+  await api.post('/api/photos/batch/delete', { ids });
+  selected.clear(); await loadPhotos(); hideLoading();
+  toast(`已删除 ${ids.length} 张照片`);
+};
+$('#batchZip').onclick = async ()=>{
+  const ids = [...selected];
+  toast(`正在打包 ${ids.length} 张照片…`);
+  showLoading();
+  try{
+    const resp = await fetch('/api/photos/download-zip',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ids }) });
+    if(!resp.ok) throw new Error('打包失败');
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'LumaStudio_export.zip';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    toast('ZIP 已下载 ✓');
+  } catch(e){ toast('下载失败:'+e.message, true); }
+  hideLoading();
+};
+$('#batchAlbum').onclick = async ()=>{
+  if(!albums.length){ toast('请先创建一个收藏夹', true); return; }
+  const names = albums.map((a,i)=>`${i+1}. ${a.name} (${a.count}张)`).join('\n');
+  const choice = prompt('选择收藏夹:\n'+names+'\n输入编号:');
+  if(!choice) return;
+  const idx = parseInt(choice)-1;
+  if(idx<0||idx>=albums.length){ toast('无效编号', true); return; }
+  const ids = [...selected];
+  await api.post(`/api/albums/${albums[idx].id}/add`, { ids });
+  toast(`已添加 ${ids.length} 张到「${albums[idx].name}」✓`); await loadAlbums();
+};
+
+/* ============ 评分/标记 ============ */
 async function setStars(id, stars){
-  const r = await api.post(`/api/photos/${id}/stars`, { stars });
-  if(r.ok){
-    const p = photos.find(x=>x.id===id);
-    if(p) p.stars = stars;
-    if($('.card[data-id="'+id+'"]')){
-      $('.card[data-id="'+id+'"] .stars').textContent = stars>0 ? '★'.repeat(stars)+'☆'.repeat(5-stars) : '';
-    }
-  }
+  await api.post(`/api/photos/${id}/stars`, { stars });
+  const p = photos.find(x=>x.id===id);
+  if(p) p.stars = stars;
+  renderGrid();
 }
 async function setFlag(id, flag){
-  const r = await api.post(`/api/photos/${id}/flag`, { flag });
-  if(r.ok){
-    const p = photos.find(x=>x.id===id);
-    if(p) p.flag = flag;
-    const card = $('.card[data-id="'+id+'"]');
-    if(card){
-      card.querySelector('.flag-badge.pick')?.remove();
-      card.querySelector('.flag-badge.reject')?.remove();
-      if(flag==='pick') card.innerHTML += '<div class="flag-badge pick show">精选</div>';
-      if(flag==='reject') card.innerHTML += '<div class="flag-badge reject show">排除</div>';
-    }
-  }
+  await api.post(`/api/photos/${id}/flag`, { flag });
+  const p = photos.find(x=>x.id===id);
+  if(p) p.flag = flag;
+  renderGrid();
 }
+
+/* ============ 幻灯片 ============ */
+let slIndex = 0;
+function openSlideshow(){
+  if(!photos.length) return;
+  $('#slideshow').hidden = false;
+  slIndex = lbIndex >= 0 ? lbIndex : 0;
+  slShow();
+}
+function slShow(){
+  const p = photos[slIndex]; if(!p) return;
+  const img = $('#slImg');
+  img.style.opacity = '0';
+  setTimeout(()=>{
+    img.src = '/files/'+p.file+'?v='+p.time;
+    img.style.opacity = '1';
+    $('#slInfo').textContent = `${slIndex+1}/${photos.length} · ${p.name} · ${p.width}×${p.height}`;
+  }, 200);
+}
+function slPlay(){
+  if(slTimer){ clearInterval(slTimer); slTimer=null; $('#slPlay').textContent='▶'; return; }
+  $('#slPlay').textContent='⏸';
+  slTimer = setInterval(()=>{ slIndex=(slIndex+1)%photos.length; slShow(); }, 3000);
+}
+$('#slPrev').onclick = ()=>{ slIndex=(slIndex-1+photos.length)%photos.length; slShow(); };
+$('#slNext').onclick = ()=>{ slIndex=(slIndex+1)%photos.length; slShow(); };
+$('#slPlay').onclick = slPlay;
+$('#slExit').onclick = ()=>{ $('#slideshow').hidden=true; if(slTimer){clearInterval(slTimer);slTimer=null;} };
+
+/* ============ 收藏夹 ============ */
+function renderAlbums(){
+  const ag = $('#albumsGrid');
+  ag.innerHTML = '';
+  $('#albumsEmpty').classList.toggle('show', albums.length===0);
+  albums.forEach(a=>{
+    const card = document.createElement('div');
+    card.className = 'album-card';
+    card.innerHTML = `<h3>📁 ${esc(a.name)}</h3><div class="album-count">${a.count} 张照片</div>`;
+    card.onclick = ()=>openAlbum(a.id);
+    ag.appendChild(card);
+  });
+}
+async function openAlbum(id){
+  activeAlbumId = id;
+  const a = albums.find(x=>x.id===id); if(!a) return;
+  $('#albumDetail').hidden = false;
+  $('#albumsGrid').style.display = 'none';
+  $('#albumsEmpty').style.display = 'none';
+  $('#albumTitle').textContent = a.name;
+  const list = await api.get(`/api/search?album=${id}`);
+  const ag = $('#albumGrid'); ag.innerHTML = '';
+  list.forEach((p,i)=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<img src="/thumbs/${p.id}.webp?v=${p.time}" alt="${esc(p.name)}" loading="lazy">
+      <div class="acts"><button class="mini rm" title="从收藏夹移除">✕</button></div>
+      <div class="meta">${esc(p.name)}</div>`;
+    card.querySelector('img').onclick = ()=>{ photos=list; lbIndex=i; openLightbox(i); };
+    card.querySelector('.rm').onclick = async e=>{e.stopPropagation();
+      await api.post(`/api/albums/${id}/remove`, { ids: [p.id] });
+      toast('已从收藏夹移除'); openAlbum(id); loadAlbums();
+    };
+    ag.appendChild(card);
+  });
+}
+$('#albumBackBtn').onclick = ()=>{
+  activeAlbumId = null;
+  $('#albumDetail').hidden = true;
+  $('#albumsGrid').style.display = '';
+  $('#albumsEmpty').style.display = '';
+  loadPhotos();
+};
+$('#createAlbumBtn').onclick = async ()=>{
+  const name = prompt('收藏夹名称:'); if(!name||!name.trim()) return;
+  await api.post('/api/albums', { name: name.trim() });
+  await loadAlbums(); toast('收藏夹已创建 ✓');
+};
+$('#albumRenameBtn').onclick = async ()=>{
+  const a = albums.find(x=>x.id===activeAlbumId); if(!a) return;
+  const name = prompt('新名称:', a.name); if(!name||!name.trim()) return;
+  await api.post(`/api/albums/${a.id}/rename`, { name: name.trim() });
+  await loadAlbums(); openAlbum(a.id); toast('已重命名 ✓');
+};
+$('#albumDeleteBtn').onclick = async ()=>{
+  if(!confirm('确定删除此收藏夹?(不会删除照片)')) return;
+  await api.del('/api/albums/'+activeAlbumId);
+  activeAlbumId = null; $('#albumDetail').hidden = true;
+  $('#albumsGrid').style.display = ''; await loadAlbums(); toast('已删除收藏夹');
+};
 
 /* ============ 灯箱:幻灯片按钮 ============ */
 $('#lbSlideshow').onclick = ()=>{ closeLightbox(); openSlideshow(); };
@@ -828,21 +840,24 @@ document.addEventListener('keydown', e=>{
   if(tgt.matches('input,textarea,select')) return;
   const k = e.key;
   
+  // 编辑器撤销/重做
   if($('#editor').classList.contains('active')){
     if(e.ctrlKey || e.metaKey){
       if(k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
       if((k === 'y' || (k === 'z' && e.shiftKey))){ e.preventDefault(); redo(); return; }
     }
   }
-  
+  // 1-5 星评分
   if(k>='1' && k<='5'){
     const id = current ? current.id : photos[lbIndex]?.id;
     if(id) setStars(id, +k);
   }
+  // 0 清除评分
   if(k==='0'){
     const id = current ? current.id : photos[lbIndex]?.id;
     if(id) setStars(id, 0);
   }
+  // P 精选 / R 排除
   if(k==='p' || k==='P'){
     const id = current ? current.id : photos[lbIndex]?.id;
     if(id) setFlag(id, 'pick');
@@ -851,6 +866,7 @@ document.addEventListener('keydown', e=>{
     const id = current ? current.id : photos[lbIndex]?.id;
     if(id) setFlag(id, 'reject');
   }
+  // 空格:幻灯片(相册视图)
   if(k===' ' && !$('#slideshow').hidden){ e.preventDefault(); slPlay(); }
   if(!$('#slideshow').hidden){
     if(k==='ArrowLeft') $('#slPrev').click();
@@ -864,5 +880,4 @@ document.addEventListener('keydown', e=>{
   await loadSettings();
   await loadPhotos();
   await loadAlbums();
-  hideLoading();
 })();
