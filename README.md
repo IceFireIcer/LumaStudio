@@ -1,107 +1,107 @@
-# Luma Studio
+# Luma Studio · 光影工作室
 
-> **[中文](LumaStudio/README_zh.md) | [日本語](LumaStudio/README_ja.md) | [한국어](LumaStudio/README_ko.md) | [Français](LumaStudio/README_fr.md) | [Español](LumaStudio/README_es.md) | [Deutsch](LumaStudio/README_de.md)**
+> **[English](README_en.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
-A self-hosted photo viewer and **Lightroom-style image editor**. Upload once, keep forever — your photos are stored as real files on disk, not in browser storage.
+自托管的网页版图片查看器与 **Lightroom 风格图片编辑器**。上传一次，永久保存——照片以真实文件存储在服务器磁盘上，不会随浏览器关闭丢失。
 
-Luma Studio turns your machine into a private photo workshop. Browse your library in an elegant white-themed gallery, then jump into a full editor to adjust, transform, crop, resize, recompress, and rewrite EXIF metadata — all processed server-side with [sharp](https://sharp.pixelplumbing.com/) (libvips).
-
----
-
-## Features
-
-### Gallery
-- Drag-and-drop or click to upload (JPG / PNG / WebP / AVIF / GIF / TIFF / BMP)
-- Server-side WebP thumbnails with animated masonry grid
-- Hover actions: edit, info, download, delete
-- Fullscreen lightbox with keyboard navigation (`←` `→` `Esc`)
-- Photos persist as real files on disk — no data loss on restart
-
-### Editor (Lightroom-style)
-- **Presets**: Original, Vivid, Soft, Vintage, Mono, High-contrast
-- **Adjustments**: brightness, contrast, saturation, hue, sharpen, blur, grayscale — live CSS preview
-- **Undo / Redo**: `Ctrl+Z` / `Ctrl+Y` (state-stack based)
-- **Transform**: rotate 90°, flip H/V, interactive crop with ratio chips (Free / 1:1 / 4:3 / 16:9 / 3:4)
-- **Resize**: exact pixel dimensions (aspect-locked) or quick 25 / 50 / 75 / 100 %
-- **Export**: JPEG / PNG / WebP / AVIF, quality slider, live size estimate
-- **Save as copy** or **overwrite original**
-- **Download to local** without saving to server
-
-### Metadata (EXIF)
-- View camera, lens, aperture, shutter, ISO, focal length, GPS, and more
-- Edit Artist / Copyright / Description / Date (JPEG only) — full **UTF-8 / CJK support**
-- One-click **strip all metadata** for privacy
-
-### Photo Culling
-- 1–5 star rating (click or keyboard `1`–`5`, `0` to clear)
-- Pick / Reject flags (`P` / `R` keys)
-- Batch operations: rate, flag, add to album, download ZIP, delete
-
-### Albums
-- Create, rename, delete collections
-- Add / remove photos
-- Browse album contents
-
-### Search, Filter & Sort
-- Search by filename
-- Filter by stars, pick/reject flag, image format
-- Sort by name, date, size, or stars
-
-### Slideshow
-- Auto-play (3 s interval), spacebar to pause/resume, arrow keys to navigate
-
-### Settings & About
-- Default export format & quality, thumbnail size, theme accent color
-- Runtime info: Node version, sharp/libvips version, photo count, storage used, uptime
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `1`–`5` | Rate 1–5 stars |
-| `0` | Clear rating |
-| `P` | Mark pick |
-| `R` | Mark reject |
-| `←` `→` | Navigate in lightbox / slideshow |
-| `Ctrl+Z` | Undo (editor) |
-| `Ctrl+Y` | Redo (editor) |
-| `Space` | Pause / resume slideshow |
-| `Esc` | Close lightbox / slideshow |
+Luma Studio 将你的电脑变成私人影像工作台。在优雅的白色主题相册中浏览照片，然后进入编辑器进行调色、变换、裁剪、缩放、压缩和 EXIF 元数据编辑——全部由 [sharp](https://sharp.pixelplumbing.com/) (libvips) 在服务端处理。
 
 ---
 
-## Quick Start
+## 功能特性
 
-### Prerequisites
+### 相册浏览
+- 拖拽或点击上传（JPG / PNG / WebP / AVIF / GIF / TIFF / BMP）
+- 服务端生成 WebP 缩略图，动画瀑布网格布局
+- 卡片悬浮操作：编辑、信息、下载、删除
+- 灯箱大图查看，键盘 `←` `→` `Esc` 导航
+- 照片以真实文件持久化存储，重启不丢失
+
+### 编辑器（Lightroom 风格）
+- **一键预设**：原图、鲜艳、柔和、复古、黑白、高对比
+- **调整面板**：亮度、对比度、饱和度、色相、锐化、模糊、黑白——CSS 实时预览
+- **撤销 / 重做**：`Ctrl+Z` / `Ctrl+Y`（状态栈机制）
+- **变换**：旋转 90°、水平/垂直翻转、交互式裁剪（自由 / 1:1 / 4:3 / 16:9 / 3:4）
+- **尺寸**：精确像素输入（锁定比例）+ 25% / 50% / 75% / 100% 快速缩放
+- **导出**：JPEG / PNG / WebP / AVIF，质量滑块，实时体积预估
+- **保存为副本** 或 **覆盖原图**
+- **下载到本地**（不落库，直接回传字节）
+
+### EXIF 元数据
+- 查看：相机、镜头、光圈、快门、ISO、焦距、GPS 等
+- 编辑：作者、版权、描述、拍摄时间（仅 JPEG）——完整支持 **UTF-8 / 中文**
+- 一键**抹除全部元数据**（隐私保护）
+
+### 选片评分
+- 1–5 星评分（键盘 `1`–`5`，`0` 清除）
+- 精选 / 排除标记（`P` / `R` 键）
+- 批量操作：评分、标记、添加到收藏夹、打包 ZIP 下载、批量删除
+
+### 收藏夹
+- 创建 / 重命名 / 删除收藏夹
+- 添加 / 移除照片
+- 浏览收藏夹内容
+
+### 搜索、筛选、排序
+- 文件名搜索
+- 按星级、标记状态、图片格式筛选
+- 按名称、日期、大小、评分排序
+
+### 幻灯片
+- 全屏自动播放（3 秒间隔），空格暂停/继续，方向键切换
+
+### 设置与关于
+- 默认导出格式和质量、缩略图尺寸、主题色
+- 运行时信息：Node 版本、sharp/libvips 版本、照片数量、占用空间、运行时间
+
+### 快捷键
+
+| 按键 | 功能 |
+|------|------|
+| `1`–`5` | 评分 1–5 星 |
+| `0` | 清除评分 |
+| `P` | 标记精选 |
+| `R` | 标记排除 |
+| `←` `→` | 灯箱 / 幻灯片导航 |
+| `Ctrl+Z` | 撤销（编辑器） |
+| `Ctrl+Y` | 重做（编辑器） |
+| `空格` | 幻灯片暂停/继续 |
+| `Esc` | 关闭灯箱 / 幻灯片 |
+
+---
+
+## 快速开始
+
+### 环境要求
 - [Node.js](https://nodejs.org/) **18+**
 
-### Source (development)
+### 源码版（开发/调试）
 
 ```bash
 git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio/LumaStudio
 npm install
 npm start
-# Open http://localhost:3000
+# 浏览器打开 http://localhost:3000
 ```
 
-Custom port:
+自定义端口：
 
 ```bash
 PORT=8080 npm start
 ```
 
-### Windows installer (bat)
+### Windows 安装包（bat 脚本）
 
 ```
 git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
-install.bat          # installs to %LOCALAPPDATA%\LumaStudio + desktop shortcut
+install.bat          # 安装到 %LOCALAPPDATA%\LumaStudio + 创建桌面快捷方式
 ```
 
-Double-click the desktop shortcut to launch. The script auto-detects and installs Node.js if missing (via winget or Chocolatey).
+双击桌面快捷方式即可启动。脚本会自动检测并安装 Node.js（通过 winget 或 Chocolatey）。
 
-### Electron (work in progress)
+### Electron 桌面版（开发中）
 
 ```
 git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
@@ -110,77 +110,77 @@ npm install
 npm run electron
 ```
 
-> **Note**: The Electron build is currently blocked. See [ROADMAP.md](LumaStudio/ROADMAP.md) for details.
+> **注意**：Electron 版目前存在模块导入问题，尚未修复。详见 [ROADMAP.md](LumaStudio/ROADMAP.md)。
 
 ---
 
-## Project Structure
+## 项目结构
 
 ```
 LumaStudio/
-├── server.js              # Express backend + sharp pipeline + REST API
-├── electron-main.mjs      # Electron entry point (ESM)
+├── server.js              # Express 后端 + sharp 图像管线 + REST API
+├── electron-main.mjs      # Electron 主进程入口（ESM）
 ├── package.json
 ├── public/
-│   ├── index.html         # SPA shell
-│   ├── style.css          # Design system
-│   └── app.js             # Front-end logic
-└── storage/               # Created at runtime
-    ├── uploads/            # Original & processed images
-    ├── thumbs/             # Generated WebP thumbnails
+│   ├── index.html         # SPA 外壳
+│   ├── style.css          # 设计系统
+│   └── app.js             # 前端逻辑
+└── storage/               # 运行时自动创建
+    ├── uploads/            # 原始 & 处理后的图片
+    ├── thumbs/             # 生成的 WebP 缩略图
     └── data/               # db.json + settings.json
 ```
 
 ---
 
-## Branches
+## 分支说明
 
-| Branch | Content |
-|--------|---------|
-| `main` | Source code |
-| `windows-releases` | Windows bat installer (one-click install / launch / uninstall) |
-| `electron` | Electron desktop app source |
-| `electron-releases` | Electron build artifacts (work in progress) |
+| 分支 | 内容 |
+|------|------|
+| `main` | 源码（开发用） |
+| `windows-releases` | Windows bat 安装包（一键安装/启动/卸载） |
+| `electron` | Electron 桌面版源码 |
+| `electron-releases` | Electron 构建产物（开发中） |
 
 ---
 
-## API Reference
+## API 参考
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/photos` | List all photos |
-| `GET` | `/api/photos/:id` | Get photo metadata |
-| `POST` | `/api/upload` | Upload images |
-| `DELETE` | `/api/photos/:id` | Delete one photo |
-| `DELETE` | `/api/photos` | Delete all photos |
-| `GET` | `/api/photos/:id/exif` | Read EXIF |
-| `POST` | `/api/photos/:id/exif` | Write EXIF (JPEG) |
-| `POST` | `/api/photos/:id/strip-exif` | Strip all metadata |
-| `POST` | `/api/photos/:id/process` | Apply edits & save |
-| `POST` | `/api/photos/:id/render` | Apply edits & return bytes |
-| `POST` | `/api/photos/:id/preview` | Estimate output size |
-| `POST` | `/api/photos/:id/rename` | Rename photo |
-| `GET` | `/api/settings` | Get settings |
-| `POST` | `/api/settings` | Update settings |
-| `GET` | `/api/stats` | Storage statistics |
-| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`) |
-| `GET` | `/api/info` | System info |
-| `POST` | `/api/photos/:id/stars` | Set stars (0–5) |
-| `POST` | `/api/photos/:id/flag` | Set flag (`pick` / `reject` / `null`) |
-| `POST` | `/api/photos/batch/stars` | Batch stars `{ ids, stars }` |
-| `POST` | `/api/photos/batch/flag` | Batch flag `{ ids, flag }` |
-| `POST` | `/api/photos/batch/delete` | Batch delete `{ ids }` |
-| `POST` | `/api/photos/download-zip` | Download as ZIP `{ ids }` |
-| `GET` | `/api/albums` | List albums |
-| `POST` | `/api/albums` | Create album `{ name }` |
-| `DELETE` | `/api/albums/:id` | Delete album |
-| `POST` | `/api/albums/:id/rename` | Rename album |
-| `POST` | `/api/albums/:id/add` | Add photos `{ ids }` |
-| `POST` | `/api/albums/:id/remove` | Remove photos `{ ids }` |
-| `GET` | `/files/:file` | Serve original (`?download=1` to force download) |
-| `GET` | `/thumbs/:id.webp` | Serve thumbnail |
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `GET` | `/api/photos` | 获取所有照片列表 |
+| `GET` | `/api/photos/:id` | 获取单张照片元数据 |
+| `POST` | `/api/upload` | 上传图片 |
+| `DELETE` | `/api/photos/:id` | 删除单张照片 |
+| `DELETE` | `/api/photos` | 删除全部照片 |
+| `GET` | `/api/photos/:id/exif` | 读取 EXIF |
+| `POST` | `/api/photos/:id/exif` | 写入 EXIF（仅 JPEG） |
+| `POST` | `/api/photos/:id/strip-exif` | 抹除全部元数据 |
+| `POST` | `/api/photos/:id/process` | 应用编辑并保存 |
+| `POST` | `/api/photos/:id/render` | 应用编辑并返回字节 |
+| `POST` | `/api/photos/:id/preview` | 预估输出体积 |
+| `POST` | `/api/photos/:id/rename` | 重命名照片 |
+| `GET` | `/api/settings` | 获取设置 |
+| `POST` | `/api/settings` | 更新设置 |
+| `GET` | `/api/stats` | 存储统计 |
+| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `album`） |
+| `GET` | `/api/info` | 系统信息 |
+| `POST` | `/api/photos/:id/stars` | 设置评分（0–5） |
+| `POST` | `/api/photos/:id/flag` | 设置标记（`pick` / `reject` / `null`） |
+| `POST` | `/api/photos/batch/stars` | 批量评分 `{ ids, stars }` |
+| `POST` | `/api/photos/batch/flag` | 批量标记 `{ ids, flag }` |
+| `POST` | `/api/photos/batch/delete` | 批量删除 `{ ids }` |
+| `POST` | `/api/photos/download-zip` | 打包下载 ZIP `{ ids }` |
+| `GET` | `/api/albums` | 获取收藏夹列表 |
+| `POST` | `/api/albums` | 创建收藏夹 `{ name }` |
+| `DELETE` | `/api/albums/:id` | 删除收藏夹 |
+| `POST` | `/api/albums/:id/rename` | 重命名收藏夹 |
+| `POST` | `/api/albums/:id/add` | 添加照片 `{ ids }` |
+| `POST` | `/api/albums/:id/remove` | 移除照片 `{ ids }` |
+| `GET` | `/files/:file` | 获取原图（`?download=1` 强制下载） |
+| `GET` | `/thumbs/:id.webp` | 获取缩略图 |
 
-### Process / Render body
+### Process / Render 请求体
 
 ```jsonc
 {
@@ -190,41 +190,41 @@ LumaStudio/
                  "crop": { "left": 100, "top": 50, "width": 400, "height": 300 } },
   "resize":    { "width": 1280, "height": 720 },
   "output":    { "format": "webp", "quality": 80 },
-  "mode":      "copy"   // or "overwrite"
+  "mode":      "copy"   // 或 "overwrite"
 }
 ```
 
 ---
 
-## Tech Stack
+## 技术栈
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | [Express](https://expressjs.com/) |
-| Image processing | [sharp](https://sharp.pixelplumbing.com/) (libvips) |
-| EXIF read | [exifr](https://github.com/MikeKovarik/exifr) |
-| EXIF write | [piexifjs](https://github.com/hMatoba/piexifjs) |
-| Uploads | [multer](https://github.com/expressjs/multer) |
-| ZIP | [yazl](https://github.com/thejoshwolfe/yazl) |
-| Desktop | [Electron](https://www.electronjs.org/) |
-| Front-end | Vanilla JavaScript / HTML / CSS (zero framework, zero build step) |
-
----
-
-## Notes
-
-- **EXIF writing** is JPEG-only (EXIF standard limitation). UTF-8 / CJK text is preserved.
-- On **Windows**, sharp cache is disabled (`sharp.cache(false)`) to avoid file-handle locks.
-- **No authentication** — designed for local / personal use. Don't expose to the public internet without a reverse proxy.
+| 层级 | 技术 |
+|------|------|
+| 后端 | [Express](https://expressjs.com/) |
+| 图像处理 | [sharp](https://sharp.pixelplumbing.com/) (libvips) |
+| EXIF 读取 | [exifr](https://github.com/MikeKovarik/exifr) |
+| EXIF 写入 | [piexifjs](https://github.com/hMatoba/piexifjs) |
+| 文件上传 | [multer](https://github.com/expressjs/multer) |
+| ZIP 打包 | [yazl](https://github.com/thejoshwolfe/yazl) |
+| 桌面版 | [Electron](https://www.electronjs.org/) |
+| 前端 | 原生 JavaScript / HTML / CSS（零框架、零构建步骤） |
 
 ---
 
-## Roadmap & Contributing
+## 注意事项
 
-See [ROADMAP.md](LumaStudio/ROADMAP.md) for the current status, known issues, and planned features.
+- **EXIF 写入**仅支持 JPEG 格式（EXIF 标准限制）。UTF-8 / 中文文本完整保留。
+- **Windows** 上 sharp 内部缓存已禁用（`sharp.cache(false)`）以避免文件句柄锁定。
+- **无认证机制**——设计用于本地/个人使用。不要直接暴露到公网，建议放在反向代理后面。
 
 ---
 
-## License
+## 路线图与贡献
+
+当前进度、已知问题和计划功能见 [ROADMAP.md](LumaStudio/ROADMAP.md)。
+
+---
+
+## 许可证
 
 [Apache License 2.0](LumaStudio/LICENSE) © 2026 [IceFire_Icer](https://github.com/IceFireIcer)
