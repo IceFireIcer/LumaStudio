@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "A beautiful, self-hosted photo viewer and Lightroom-style image editor with a Node.js backend.",
   "type": "module",
-  "main": "server.js",
+  "main": "electron-main.cjs",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "electron": "electron electron-main.mjs",
+    "electron": "node electron-launch.cjs",
     "build:win": "electron-builder --win --x64",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux"
@@ -47,7 +47,7 @@
       "output": "release"
     },
     "files": [
-      "electron-main.mjs",
+      "electron-main.cjs",
       "public/**/*",
       "storage/.gitkeep",
       "package.json",
