@@ -82,7 +82,7 @@ git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm start
-# 브라우저에서 http://localhost:3000 열기
+# 브라우저에서 http://localhost:8765 열기
 ```
 
 커스텀 포트:

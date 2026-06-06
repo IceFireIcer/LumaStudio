@@ -82,7 +82,7 @@ git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm start
-# http://localhost:3000 im Browser öffnen
+# http://localhost:8765 im Browser öffnen
 ```
 
 Eigener Port:
