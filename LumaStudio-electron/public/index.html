@@ -38,6 +38,10 @@
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8h.01M11 11h1v6h1"/></svg>
         <span>关于</span>
       </button>
+      <button class="nav-item" data-view="logs">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6 M16 13H8 M16 17H8 M10 9H8"/></svg>
+        <span>日志</span>
+      </button>
     </nav>
     <div class="sidebar-foot">
       <div class="storage-mini" id="storageMini">— 张照片</div>
@@ -391,6 +395,60 @@
       </div>
     </section>
 
+    <!-- ===== 日志 ===== -->
+    <section class="view" data-view="logs">
+      <div class="topbar">
+        <div>
+          <h1>系统日志</h1>
+          <p class="sub" id="logsSub">实时捕获前后端活动 · 便于开发调试</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn ghost" id="logsClearBtn">清空日志</button>
+          <button class="btn ghost" id="logsRefreshBtn">刷新</button>
+          <select id="logsLevelFilter" class="tb-select">
+            <option value="">全部级别</option>
+            <option value="info">INFO</option>
+            <option value="warn">WARN</option>
+            <option value="error">ERROR</option>
+            <option value="debug">DEBUG</option>
+          </select>
+          <select id="logsSourceFilter" class="tb-select">
+            <option value="">全部来源</option>
+            <option value="frontend">frontend</option>
+            <option value="backend">backend</option>
+            <option value="system">system</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="logs-container">
+        <div class="logs-info" id="logsInfo">
+          <span id="logsCount">0</span> 条日志 ·
+          <span id="logsPath">—</span>
+        </div>
+        <div class="logs-table-wrap">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th style="width: 180px;">时间</th>
+                <th style="width: 70px;">级别</th>
+                <th style="width: 100px;">来源</th>
+                <th>消息</th>
+                <th style="width: 200px;">详情</th>
+              </tr>
+            </thead>
+            <tbody id="logsTableBody">
+              <!-- 动态填充 -->
+            </tbody>
+          </table>
+        </div>
+        <div class="logs-empty" id="logsEmpty" style="display: none;">
+          <div class="empty-ico">📋</div>
+          <p>暂无日志记录</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- 灯箱 -->
@@ -412,6 +470,23 @@
   <input type="file" id="fileInput" accept="image/*" multiple hidden>
   <div class="toast" id="toast"></div>
   <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
+  <!-- 通用输入模态框 -->
+  <div class="modal" id="inputModal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="inputModalTitle">输入</h3>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="inputModalField" class="modal-input" placeholder="请输入...">
+        <div class="modal-hint" id="inputModalHint"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="inputModalCancel">取消</button>
+        <button class="btn primary" id="inputModalConfirm">确定</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/app.js"></script>
 </body>
