@@ -28,10 +28,9 @@ const DIRS = {
 for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 
 /* ============ 日志系统 ============ */
-// 检测运行环境：便携版使用 lumastudio-log，安装版使用 log
-// 通过检查是否存在 electron-main.cjs 或 resourcesPath 来判断
-const isElectron = fs.existsSync(path.join(__dirname, 'electron-main.cjs')) ||
-                   !!process.resourcesPath ||
+// 检测运行环境：便携版(Electron)使用 lumastudio-log，安装版(Web)使用 log
+// 检测依据: process.versions.electron (Electron环境特有) 或 ELECTRON_RUN_AS_NODE 环境变量
+const isElectron = !!(process.versions && process.versions.electron) ||
                    process.env.ELECTRON_RUN_AS_NODE === '1';
 
 const LOG_DIR_NAME = isElectron ? 'lumastudio-log' : 'log';
