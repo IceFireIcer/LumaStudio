@@ -775,7 +775,7 @@ app.post('/api/logs/frontend', (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 8765;
+const PORT = process.env.PORT || 7443;
 app.listen(PORT, () => {
   logger.info('system', `服务器已启动在端口 ${PORT}`);
   console.log(`\n  📷 图片工作室已启动`);

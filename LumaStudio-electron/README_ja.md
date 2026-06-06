@@ -82,7 +82,7 @@ git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm start
-# ブラウザで http://localhost:8765 を開く
+# ブラウザで http://localhost:7443 を開く
 ```
 
 カスタムポート：
