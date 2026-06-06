@@ -82,7 +82,7 @@ git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm start
-# 浏览器打开 http://localhost:8765
+# 浏览器打开 http://localhost:7443
 ```
 
 自定义端口：
