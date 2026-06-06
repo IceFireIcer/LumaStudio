@@ -2,7 +2,7 @@
 title Luma Studio
 echo.
 echo   ============================================
-echo      Luma Studio  v1.0.0
+echo      Luma Studio  v1.0.2
 echo      Photo Viewer ^& Lightroom-style Editor
 echo   ============================================
 echo.

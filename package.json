@@ -1,6 +1,6 @@
 {
   "name": "luma-studio",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A beautiful, self-hosted photo viewer and Lightroom-style image editor with a Node.js backend.",
   "type": "module",
   "main": "server.js",
