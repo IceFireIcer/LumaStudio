@@ -1,5 +1,7 @@
 # Luma Studio
 
+> ⚠️ **这是 Electron 桌面版源码分支** | Web服务端版本请访问 [`main`](https://github.com/IceFireIcer/LumaStudio/tree/main) 分支
+
 > **[中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
 A self-hosted photo viewer and **Lightroom-style image editor**. Upload once, keep forever — your photos are stored as real files on disk, not in browser storage.
