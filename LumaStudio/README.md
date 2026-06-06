@@ -186,4 +186,4 @@ luma-studio/
 
 ## 📄 License
 
-MIT © 2026
+Apache License 2.0 © 2026
