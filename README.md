@@ -14,7 +14,7 @@
 
 1. 确保已安装 [Node.js](https://nodejs.org/) 18+ (脚本会自动尝试安装)
 2. 双击 **`install.bat`** — 自动安装到 `%LOCALAPPDATA%\LumaStudio`,创建桌面快捷方式
-3. 双击桌面「Luma Studio」图标启动,浏览器自动打开 http://localhost:3000
+3. 双击桌面「Luma Studio」图标启动,浏览器自动打开 http://localhost:7443
 
 ### 方式二:直接运行
 

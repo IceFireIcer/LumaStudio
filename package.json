@@ -3,10 +3,14 @@
   "version": "1.0.2",
   "description": "A beautiful, self-hosted photo viewer and Lightroom-style image editor with a Node.js backend.",
   "type": "module",
-  "main": "server.js",
+  "main": "electron-main.cjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "electron": "node electron-launch.cjs",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
   },
   "keywords": [
     "photo",
@@ -15,8 +19,10 @@
     "lightroom",
     "exif",
     "sharp",
-    "self-hosted"
+    "self-hosted",
+    "electron"
   ],
+  "author": "IceFire_Icer",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=18"
@@ -29,5 +35,63 @@
     "piexifjs": "^1.0.6",
     "sharp": "^0.33.5",
     "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "electron": "^35.7.5",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.icefire.luma-studio",
+    "productName": "Luma Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron-main.cjs",
+      "electron-launch.cjs",
+      "public/**/*",
+      "storage/.gitkeep",
+      "package.json",
+      "!node_modules/**/{test,tests,__tests__}/**",
+      "!node_modules/**/*.{md,ts,map}",
+      "!release/**"
+    ],
+    "extraResources": [],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/favicon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Luma Studio",
+      "installerIcon": "public/favicon.ico",
+      "uninstallerIcon": "public/favicon.ico"
+    },
+    "mac": {
+      "category": "public.app-category.photography",
+      "icon": "public/favicon.icns"
+    },
+    "linux": {
+      "category": "Graphics",
+      "icon": "public"
+    }
   }
 }
