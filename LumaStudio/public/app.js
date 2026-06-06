@@ -43,6 +43,7 @@ function switchView(name){
   if(name==='settings') loadStats();
   if(name==='about') loadAbout();
   if(name==='albums'){ activeAlbumId=null; $('#albumDetail').hidden=true; $('#albumsGrid').style.display=''; loadAlbums(); }
+  if(name==='logs') loadLogs();
   // 编辑器 / 信息 页若没有已选照片,显示空状态提示而不是破图
   if(name==='editor'){
     const has = !!current;
@@ -814,14 +815,18 @@ $('#albumBackBtn').onclick = ()=>{
   loadPhotos();
 };
 $('#createAlbumBtn').onclick = async ()=>{
-  const name = prompt('收藏夹名称:'); if(!name||!name.trim()) return;
+  const name = await showInputModal('新建收藏夹', '收藏夹名称', '', '输入收藏夹名称，例如：旅行照片、家庭相册');
+  if(!name||!name.trim()) return;
   await api.post('/api/albums', { name: name.trim() });
+  logFrontend('info', '创建收藏夹', { name: name.trim() });
   await loadAlbums(); toast('收藏夹已创建 ✓');
 };
 $('#albumRenameBtn').onclick = async ()=>{
   const a = albums.find(x=>x.id===activeAlbumId); if(!a) return;
-  const name = prompt('新名称:', a.name); if(!name||!name.trim()) return;
+  const name = await showInputModal('重命名收藏夹', '新名称', a.name, `当前名称: ${a.name}`);
+  if(!name||!name.trim()) return;
   await api.post(`/api/albums/${a.id}/rename`, { name: name.trim() });
+  logFrontend('info', '重命名收藏夹', { id: a.id, oldName: a.name, newName: name.trim() });
   await loadAlbums(); openAlbum(a.id); toast('已重命名 ✓');
 };
 $('#albumDeleteBtn').onclick = async ()=>{
@@ -875,9 +880,230 @@ document.addEventListener('keydown', e=>{
   }
 });
 
+/* ============ 日志系统 ============ */
+let logsRefreshTimer = null;
+let logsAutoRefresh = true;
+
+async function loadLogs(){
+  try {
+    const level = $('#logsLevelFilter')?.value || '';
+    const source = $('#logsSourceFilter')?.value || '';
+    const params = new URLSearchParams();
+    params.set('limit', '200');
+    if (level) params.set('level', level);
+    if (source) params.set('source', source);
+
+    const data = await api.get(`/api/logs?${params.toString()}`);
+
+    // 更新路径信息
+    if ($('#logsPath')) $('#logsPath').textContent = data.logDir || '—';
+    if ($('#logsCount')) $('#logsCount').textContent = data.total || 0;
+
+    const tbody = $('#logsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    if (!data.logs || data.logs.length === 0) {
+      $('#logsEmpty').style.display = 'block';
+      return;
+    }
+    $('#logsEmpty').style.display = 'none';
+
+    data.logs.forEach(log => {
+      const tr = document.createElement('tr');
+      tr.className = `log-row log-${log.level.toLowerCase()}`;
+
+      const timeTd = document.createElement('td');
+      timeTd.textContent = log.time || '—';
+      timeTd.style.fontFamily = 'monospace';
+      timeTd.style.fontSize = '12px';
+
+      const levelTd = document.createElement('td');
+      const levelBadge = document.createElement('span');
+      levelBadge.className = `log-badge log-badge-${log.level.toLowerCase()}`;
+      levelBadge.textContent = log.level;
+      levelTd.appendChild(levelBadge);
+
+      const sourceTd = document.createElement('td');
+      sourceTd.innerHTML = `<span class="log-source">${log.source}</span>`;
+
+      const msgTd = document.createElement('td');
+      msgTd.textContent = log.message || '—';
+      msgTd.style.wordBreak = 'break-word';
+
+      const dataTd = document.createElement('td');
+      if (log.data) {
+        const pre = document.createElement('pre');
+        pre.style.fontSize = '11px';
+        pre.style.margin = '0';
+        pre.style.maxHeight = '60px';
+        pre.style.overflow = 'auto';
+        pre.textContent = typeof log.data === 'string' ? log.data : JSON.stringify(log.data, null, 2);
+        dataTd.appendChild(pre);
+      } else {
+        dataTd.textContent = '—';
+        dataTd.style.color = '#888';
+      }
+
+      tr.appendChild(timeTd);
+      tr.appendChild(levelTd);
+      tr.appendChild(sourceTd);
+      tr.appendChild(msgTd);
+      tr.appendChild(dataTd);
+      tbody.appendChild(tr);
+    });
+
+    // 自动滚动到底部（最新日志）
+    const wrap = $('.logs-table-wrap');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+
+  } catch (e) {
+    console.error('加载日志失败:', e);
+    logFrontend('error', '加载日志失败', { error: e.message });
+  }
+}
+
+// 前端日志记录函数（发送到后端）
+async function logFrontend(level, message, data = null) {
+  try {
+    // 同时输出到控制台
+    const ts = new Date().toISOString().replace('T', ' ').substring(0, 23);
+    const consoleMsg = `[${ts}] [${level.toUpperCase()}] [frontend] ${message}`;
+    if (level === 'error') console.error(consoleMsg, data);
+    else if (level === 'warn') console.warn(consoleMsg, data);
+    else console.log(consoleMsg, data);
+
+    // 发送到后端记录
+    await fetch('/api/logs/frontend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, message, data })
+    }).catch(() => {}); // 静默失败，不影响主流程
+  } catch (e) {
+    // 静默处理
+  }
+}
+
+// 绑定日志过滤器
+function bindLogFilters(){
+  const levelFilter = $('#logsLevelFilter');
+  const sourceFilter = $('#logsSourceFilter');
+  const refreshBtn = $('#logsRefreshBtn');
+  const clearBtn = $('#logsClearBtn');
+
+  if (levelFilter) {
+    levelFilter.onchange = () => {
+      if (document.querySelector('.view[data-view="logs"].active')) {
+        loadLogs();
+      }
+    };
+  }
+
+  if (sourceFilter) {
+    sourceFilter.onchange = () => {
+      if (document.querySelector('.view[data-view="logs"].active')) {
+        loadLogs();
+      }
+    };
+  }
+
+  if (refreshBtn) {
+    refreshBtn.onclick = () => loadLogs();
+  }
+
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      if (!confirm('确定清空所有日志？此操作不可恢复。')) return;
+      try {
+        await api.post('/api/logs/clear', {});
+        toast('日志已清空');
+        loadLogs();
+        logFrontend('info', '用户清空了日志');
+      } catch (e) {
+        toast('清空失败: ' + e.message);
+      }
+    };
+  }
+}
+
+// 自动刷新日志（当日志页面激活时）
+function startLogsAutoRefresh(){
+  if (logsRefreshTimer) clearInterval(logsRefreshTimer);
+  logsRefreshTimer = setInterval(() => {
+    const logsView = document.querySelector('.view[data-view="logs"].active');
+    if (logsView && logsAutoRefresh) {
+      loadLogs();
+    }
+  }, 3000); // 每 3 秒刷新
+}
+
+function stopLogsAutoRefresh(){
+  if (logsRefreshTimer) {
+    clearInterval(logsRefreshTimer);
+    logsRefreshTimer = null;
+  }
+}
+
+/* ============ 通用模态输入框 ============ */
+function showInputModal(title, placeholder = '', defaultValue = '', hint = '') {
+  return new Promise((resolve) => {
+    const modal = $('#inputModal');
+    const titleEl = $('#inputModalTitle');
+    const field = $('#inputModalField');
+    const hintEl = $('#inputModalHint');
+    const cancelBtn = $('#inputModalCancel');
+    const confirmBtn = $('#inputModalConfirm');
+
+    if (!modal || !field) {
+      // 降级到 prompt
+      const val = prompt(title, defaultValue);
+      resolve(val);
+      return;
+    }
+
+    titleEl.textContent = title;
+    field.placeholder = placeholder;
+    field.value = defaultValue;
+    hintEl.textContent = hint;
+
+    modal.hidden = false;
+    field.focus();
+    field.select();
+
+    const cleanup = (value) => {
+      modal.hidden = true;
+      cancelBtn.onclick = null;
+      confirmBtn.onclick = null;
+      field.onkeydown = null;
+      resolve(value);
+    };
+
+    cancelBtn.onclick = () => cleanup(null);
+    confirmBtn.onclick = () => {
+      const val = field.value.trim();
+      cleanup(val || null);
+    };
+
+    field.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        const val = field.value.trim();
+        cleanup(val || null);
+      }
+      if (e.key === 'Escape') {
+        cleanup(null);
+      }
+    };
+  });
+}
+
 /* ============ 启动 ============ */
 (async function init(){
   await loadSettings();
   await loadPhotos();
   await loadAlbums();
+  bindLogFilters();
+  startLogsAutoRefresh();
+  // 记录启动日志
+  logFrontend('info', '应用启动完成');
 })();

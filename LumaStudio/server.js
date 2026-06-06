@@ -27,6 +27,67 @@ const DIRS = {
 };
 for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 
+/* ============ 日志系统 ============ */
+// 检测运行环境：便携版使用 lumastudio-log，安装版使用 log
+// 通过检查是否存在 electron-main.cjs 或 resourcesPath 来判断
+const isElectron = fs.existsSync(path.join(__dirname, 'electron-main.cjs')) ||
+                   !!process.resourcesPath ||
+                   process.env.ELECTRON_RUN_AS_NODE === '1';
+
+const LOG_DIR_NAME = isElectron ? 'lumastudio-log' : 'log';
+const LOG_DIR = path.join(__dirname, LOG_DIR_NAME);
+fs.mkdirSync(LOG_DIR, { recursive: true });
+
+const LOG_FILE = path.join(LOG_DIR, 'app.log');
+const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB 限制
+
+// 日志写入函数
+function logMessage(level, source, message, data = null) {
+  const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 23);
+  const logEntry = {
+    time: timestamp,
+    level: level.toUpperCase(),
+    source: source,
+    message: message,
+    data: data
+  };
+
+  const logLine = JSON.stringify(logEntry) + '\n';
+
+  // 检查日志文件大小，超过限制则轮转
+  try {
+    if (fs.existsSync(LOG_FILE)) {
+      const stats = fs.statSync(LOG_FILE);
+      if (stats.size > MAX_LOG_SIZE) {
+        const backupFile = path.join(LOG_DIR, `app-${Date.now()}.log`);
+        fs.renameSync(LOG_FILE, backupFile);
+      }
+    }
+  } catch (e) {
+    console.error('日志轮转失败:', e.message);
+  }
+
+  // 写入日志文件
+  fs.appendFileSync(LOG_FILE, logLine, 'utf8');
+
+  // 同时输出到控制台
+  const consoleMsg = `[${timestamp}] [${level.toUpperCase()}] [${source}] ${message}`;
+  if (level === 'error') console.error(consoleMsg);
+  else if (level === 'warn') console.warn(consoleMsg);
+  else console.log(consoleMsg);
+}
+
+// 便捷方法
+const logger = {
+  info: (source, msg, data) => logMessage('info', source, msg, data),
+  warn: (source, msg, data) => logMessage('warn', source, msg, data),
+  error: (source, msg, data) => logMessage('error', source, msg, data),
+  debug: (source, msg, data) => logMessage('debug', source, msg, data),
+};
+
+// 启动日志
+logger.info('system', 'Luma Studio 启动', { isElectron, logDir: LOG_DIR });
+
 const DB_FILE = path.join(DIRS.data, 'db.json');
 const SETTINGS_FILE = path.join(DIRS.data, 'settings.json');
 
@@ -621,8 +682,104 @@ app.get('/api/search', (req, res) => {
   res.json(list);
 });
 
+/* ---------- 日志系统 API ---------- */
+// 请求日志中间件
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    if (req.path.startsWith('/api/')) {
+      logger.info('backend', `${req.method} ${req.path}`, {
+        status: res.statusCode,
+        duration: `${duration}ms`,
+        query: Object.keys(req.query).length ? req.query : undefined,
+        body: req.method !== 'GET' && req.body ? JSON.stringify(req.body).substring(0, 200) : undefined
+      });
+    }
+  });
+  next();
+});
+
+// 获取日志列表
+app.get('/api/logs', (req, res) => {
+  try {
+    const { limit = 100, level, source } = req.query;
+
+    if (!fs.existsSync(LOG_FILE)) {
+      return res.json({ logs: [], total: 0 });
+    }
+
+    const content = fs.readFileSync(LOG_FILE, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean);
+
+    let logs = lines.map(line => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+
+    // 过滤
+    if (level) {
+      logs = logs.filter(l => l.level.toLowerCase() === level.toLowerCase());
+    }
+    if (source) {
+      logs = logs.filter(l => l.source.toLowerCase() === source.toLowerCase());
+    }
+
+    // 取最近的 N 条（文件是追加的，所以需要反转）
+    logs = logs.slice(-parseInt(limit)).reverse();
+
+    res.json({
+      logs,
+      total: logs.length,
+      logDir: LOG_DIR,
+      logFile: LOG_FILE
+    });
+  } catch (e) {
+    logger.error('backend', '读取日志失败', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 清空日志
+app.post('/api/logs/clear', (req, res) => {
+  try {
+    if (fs.existsSync(LOG_FILE)) {
+      fs.writeFileSync(LOG_FILE, '', 'utf8');
+    }
+    logger.info('backend', '日志已清空');
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error('backend', '清空日志失败', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取日志文件路径信息
+app.get('/api/logs/info', (req, res) => {
+  res.json({
+    logDir: LOG_DIR,
+    logFile: LOG_FILE,
+    isElectron,
+    logDirName: LOG_DIR_NAME
+  });
+});
+
+// 接收前端日志
+app.post('/api/logs/frontend', (req, res) => {
+  const { level = 'info', message, data } = req.body;
+  if (message) {
+    logger[level] ? logger[level]('frontend', message, data) : logger.info('frontend', message, data);
+  }
+  res.json({ ok: true });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
+  logger.info('system', `服务器已启动在端口 ${PORT}`);
   console.log(`\n  📷 图片工作室已启动`);
   console.log(`  → http://localhost:${PORT}\n`);
+  console.log(`  📝 日志目录: ${LOG_DIR}\n`);
 });
