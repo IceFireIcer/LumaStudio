@@ -88,6 +88,22 @@ npm start
 
 Then open **http://localhost:3000** in your browser.
 
+## 🪟 Electron Desktop Release
+
+Current desktop release line: **v1.0.1**
+
+### What's fixed in v1.0.1
+- Fixed the packaged Electron app homepage issue where the app could show `Cannot GET /`
+- Separated bundled resource path resolution from writable data path resolution
+- Fixed Windows Electron launch behavior by clearing `ELECTRON_RUN_AS_NODE` contamination
+- Verified the packaged desktop app can serve both `/` and `/api/info` correctly
+
+### Recommended Windows downloads
+- **Installer**: `Luma Studio Setup 1.0.1.exe`
+- **Portable**: `Luma Studio 1.0.1.exe`
+
+The installer is recommended for most users. The portable build is suitable for direct use without installation.
+
 To run on a different port:
 
 ```bash

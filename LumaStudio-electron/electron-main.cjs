@@ -125,7 +125,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 // ---- 所有 API 端点(与 server.js 一致) ----
 appServer.get('/api/info', (req, res) => {
   let total = 0; for (const p of db.photos) total += p.size || 0;
-  res.json({ name: 'Luma Studio', nameCN: '光影工作室', version: '1.0.0', author: 'IceFire_Icer', year: 2026, node: process.version, sharp: sharp.versions || null, photoCount: db.photos.length, storageBytes: total, uptime: Math.floor(process.uptime()), pid: process.pid });
+  res.json({ name: 'Luma Studio', nameCN: '光影工作室', version: app.getVersion(), author: 'IceFire_Icer', year: 2026, node: process.version, sharp: sharp.versions || null, photoCount: db.photos.length, storageBytes: total, uptime: Math.floor(process.uptime()), pid: process.pid });
 });
 appServer.get('/api/photos', (req, res) => { res.json([...db.photos].sort((a, b) => b.time - a.time)); });
 appServer.get('/api/photos/:id', (req, res) => { const p = db.photos.find(x => x.id === req.params.id); if (!p) return res.status(404).json({ error: '未找到' }); res.json(p); });
