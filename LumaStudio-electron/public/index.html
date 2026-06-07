@@ -303,6 +303,11 @@
         <div class="stat-row"><span>占用空间</span><b id="stSize">—</b></div>
         <button class="btn danger" id="clearStorage">清空全部照片</button>
       </div>
+      <div class="settings-card">
+        <h3>首次使用向导</h3>
+        <p class="settings-hint">重置后,下次启动程序时将重新显示使用引导(OOBE)。</p>
+        <button class="btn ghost" id="resetOOBE">重置首次使用向导</button>
+      </div>
       <button class="btn primary big" id="saveSettings">保存设置</button>
     </section>
 
@@ -359,7 +364,7 @@
           <span class="about-logo">📷</span>
           <h2>Luma Studio</h2>
           <p class="about-tagline">光影工作室 · 图片查看与编辑</p>
-          <span class="about-ver" id="aboutVer">v1.0.3</span>
+          <span class="about-ver" id="aboutVer">v1.0.4</span>
         </div>
         <div class="about-section">
           <h3>简介</h3>
@@ -484,6 +489,63 @@
       <div class="modal-footer">
         <button class="btn ghost" id="inputModalCancel">取消</button>
         <button class="btn primary" id="inputModalConfirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OOBE 首次使用向导 -->
+  <div class="modal oobe-modal" id="oobeModal" hidden>
+    <div class="modal-content oobe-content">
+      <div class="oobe-progress">
+        <div class="oobe-step active" data-step="1"></div>
+        <div class="oobe-step" data-step="2"></div>
+        <div class="oobe-step" data-step="3"></div>
+        <div class="oobe-step" data-step="4"></div>
+      </div>
+      <div class="oobe-page" data-page="1">
+        <div class="oobe-icon">🎉</div>
+        <h2>欢迎使用光影工作室</h2>
+        <p>Luma Studio 是一款强大的照片管理与编辑工具</p>
+        <p class="oobe-sub">让我们用 30 秒了解如何使用它</p>
+      </div>
+      <div class="oobe-page" data-page="2" hidden>
+        <div class="oobe-icon">📸</div>
+        <h2>上传与管理照片</h2>
+        <ul class="oobe-list">
+          <li><strong>拖拽上传</strong>：将照片拖入窗口即可自动上传</li>
+          <li><strong>多选操作</strong>：点击卡片左上角的勾选框进行批量操作</li>
+          <li><strong>评分标记</strong>：使用 <code>1-5</code> 数字键快速评分，<code>P</code> 精选，<code>R</code> 排除</li>
+          <li><strong>收藏夹</strong>：创建相册将照片分组管理</li>
+        </ul>
+      </div>
+      <div class="oobe-page" data-page="3" hidden>
+        <div class="oobe-icon">✨</div>
+        <h2>编辑与导出</h2>
+        <ul class="oobe-list">
+          <li><strong>智能编辑</strong>：调整亮度、对比度、饱和度等参数</li>
+          <li><strong>滤镜预设</strong>：6 种专业滤镜一键应用</li>
+          <li><strong>裁剪旋转</strong>：交互式裁剪框，支持旋转和翻转</li>
+          <li><strong>格式转换</strong>：导出为 JPEG、PNG、WebP、AVIF 格式</li>
+        </ul>
+      </div>
+      <div class="oobe-page" data-page="4" hidden>
+        <div class="oobe-icon">⚡</div>
+        <h2>快捷键速查</h2>
+        <ul class="oobe-list">
+          <li><code>1-5</code> 评分 1-5 星 / <code>0</code> 清除评分</li>
+          <li><code>P</code> 标记精选 / <code>R</code> 标记排除</li>
+          <li><code>← →</code> 灯箱中切换照片</li>
+          <li><code>空格</code> 幻灯片暂停/继续</li>
+          <li><code>Esc</code> 关闭灯箱/幻灯片</li>
+        </ul>
+        <p class="oobe-sub">准备好开始你的创作之旅了吗？</p>
+      </div>
+      <div class="oobe-footer">
+        <button class="btn ghost" id="oobeSkip">跳过</button>
+        <div class="oobe-nav">
+          <button class="btn ghost" id="oobePrev" disabled>上一步</button>
+          <button class="btn primary" id="oobeNext">下一步</button>
+        </div>
       </div>
     </div>
   </div>

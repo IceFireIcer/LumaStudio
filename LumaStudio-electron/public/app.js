@@ -905,14 +905,16 @@ async function loadLogs(){
     tbody.innerHTML = '';
 
     if (!data.logs || data.logs.length === 0) {
-      $('#logsEmpty').style.display = 'block';
+      const empty = $('#logsEmpty');
+      if (empty) empty.style.display = 'block';
       return;
     }
-    $('#logsEmpty').style.display = 'none';
+    { const empty = $('#logsEmpty'); if (empty) empty.style.display = 'none'; }
 
     data.logs.forEach(log => {
+      const lvl = (log.level || 'info').toLowerCase();
       const tr = document.createElement('tr');
-      tr.className = `log-row log-${log.level.toLowerCase()}`;
+      tr.className = `log-row log-${lvl}`;
 
       const timeTd = document.createElement('td');
       timeTd.textContent = log.time || '—';
@@ -921,12 +923,15 @@ async function loadLogs(){
 
       const levelTd = document.createElement('td');
       const levelBadge = document.createElement('span');
-      levelBadge.className = `log-badge log-badge-${log.level.toLowerCase()}`;
-      levelBadge.textContent = log.level;
+      levelBadge.className = `log-badge log-badge-${lvl}`;
+      levelBadge.textContent = log.level || 'INFO';
       levelTd.appendChild(levelBadge);
 
       const sourceTd = document.createElement('td');
-      sourceTd.innerHTML = `<span class="log-source">${log.source}</span>`;
+      const sourceSpan = document.createElement('span');
+      sourceSpan.className = 'log-source';
+      sourceSpan.textContent = log.source || '—';
+      sourceTd.appendChild(sourceSpan);
 
       const msgTd = document.createElement('td');
       msgTd.textContent = log.message || '—';
@@ -1106,4 +1111,86 @@ function showInputModal(title, placeholder = '', defaultValue = '', hint = '') {
   startLogsAutoRefresh();
   // 记录启动日志
   logFrontend('info', '应用启动完成');
+  // 检查 OOBE 状态
+  await checkAndShowOOBE();
 })();
+
+/* ============ OOBE 首次使用向导 ============ */
+let oobeCurrentStep = 1;
+
+async function checkAndShowOOBE(){
+  try {
+    const res = await api.get('/api/oobe/status');
+    if(!res.completed){
+      showOOBE();
+    }
+  } catch(e){
+    console.error('OOBE 状态检查失败:', e);
+  }
+}
+
+function showOOBE(){
+  const modal = $('#oobeModal');
+  if(!modal) return;
+  oobeCurrentStep = 1;
+  updateOOBEStep();
+  modal.hidden = false;
+}
+
+function updateOOBEStep(){
+  const pages = $$('.oobe-page');
+  const steps = $$('.oobe-step');
+  const prevBtn = $('#oobePrev');
+  const nextBtn = $('#oobeNext');
+
+  pages.forEach((p, i) => {
+    p.hidden = (i + 1) !== oobeCurrentStep;
+  });
+  steps.forEach((s, i) => {
+    s.classList.toggle('active', (i + 1) <= oobeCurrentStep);
+  });
+
+  prevBtn.disabled = oobeCurrentStep === 1;
+  nextBtn.textContent = oobeCurrentStep === 4 ? '开始使用' : '下一步';
+}
+
+async function completeOOBE(){
+  try {
+    await api.post('/api/oobe/complete');
+    $('#oobeModal').hidden = true;
+    toast('欢迎使用光影工作室！');
+    logFrontend('info', 'OOBE 向导完成');
+  } catch(e){
+    console.error('OOBE 完成失败:', e);
+    toast('保存失败', true);
+  }
+}
+
+// OOBE 按钮绑定
+$('#oobeSkip')?.addEventListener('click', completeOOBE);
+$('#oobePrev')?.addEventListener('click', () => {
+  if(oobeCurrentStep > 1){
+    oobeCurrentStep--;
+    updateOOBEStep();
+  }
+});
+$('#oobeNext')?.addEventListener('click', () => {
+  if(oobeCurrentStep < 4){
+    oobeCurrentStep++;
+    updateOOBEStep();
+  } else {
+    completeOOBE();
+  }
+});
+
+// 设置页：重置首次使用向导
+$('#resetOOBE')?.addEventListener('click', async () => {
+  try {
+    await api.post('/api/oobe/reset');
+    toast('首次使用向导已重置，下次启动将重新显示');
+    logFrontend('info', 'OOBE 已重置');
+  } catch(e){
+    console.error('OOBE 重置失败:', e);
+    toast('重置失败', true);
+  }
+});

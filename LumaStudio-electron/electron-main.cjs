@@ -18,6 +18,9 @@ const fsp = require('fs/promises');
 const path = require('path');
 const { ZipFile } = require('yazl');
 const { createRequire } = require('module');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 
 const APP_ROOT = __dirname;
 const DATA_ROOT = app.isPackaged
@@ -25,6 +28,38 @@ const DATA_ROOT = app.isPackaged
   : __dirname;
 
 sharp.cache(false);
+
+/* ============ Windows 注册表 OOBE 管理 ============ */
+const REG_KEY = 'HKCU\\Software\\LumaStudio';
+const REG_VALUE = 'OOBECompleted';
+
+async function checkOOBECompleted() {
+  if (process.platform !== 'win32') return true; // 非 Windows 跳过 OOBE
+  try {
+    const { stdout } = await execAsync(`reg query "${REG_KEY}" /v ${REG_VALUE}`);
+    return stdout.includes(REG_VALUE) && stdout.includes('0x1');
+  } catch {
+    return false;
+  }
+}
+
+async function setOOBECompleted() {
+  if (process.platform !== 'win32') return;
+  try {
+    await execAsync(`reg add "${REG_KEY}" /v ${REG_VALUE} /t REG_DWORD /d 1 /f`);
+  } catch (err) {
+    console.error('设置 OOBE 注册表失败:', err);
+  }
+}
+
+async function resetOOBE() {
+  if (process.platform !== 'win32') return;
+  try {
+    await execAsync(`reg delete "${REG_KEY}" /v ${REG_VALUE} /f`);
+  } catch (err) {
+    console.error('重置 OOBE 注册表失败:', err);
+  }
+}
 
 /* ============ 目录与数据 ============ */
 const DIRS = {
@@ -221,6 +256,21 @@ appServer.post('/api/photos/:id/preview', async (req, res) => {
 appServer.post('/api/photos/:id/rename', (req, res) => { const p = db.photos.find(x => x.id === req.params.id); if (!p) return res.status(404).json({ error: '未找到' }); const name = (req.body.name || '').trim(); if (!name) return res.status(400).json({ error: '名称不能为空' }); p.name = name.slice(0, 200); persistDB(); res.json({ ok: true, photo: p }); });
 appServer.get('/api/settings', (req, res) => res.json(settings));
 appServer.post('/api/settings', (req, res) => { settings = { ...settings, ...req.body }; persistSettings(); res.json({ ok: true, settings }); });
+
+// OOBE API
+appServer.get('/api/oobe/status', async (req, res) => {
+  const completed = await checkOOBECompleted();
+  res.json({ completed });
+});
+appServer.post('/api/oobe/complete', async (req, res) => {
+  await setOOBECompleted();
+  res.json({ ok: true });
+});
+appServer.post('/api/oobe/reset', async (req, res) => {
+  await resetOOBE();
+  res.json({ ok: true });
+});
+
 appServer.get('/api/stats', async (req, res) => { let total = 0; for (const p of db.photos) total += p.size || 0; res.json({ count: db.photos.length, totalSize: total, thumbSize: settings.thumbSize }); });
 appServer.post('/api/photos/:id/stars', (req, res) => { const p = db.photos.find(x => x.id === req.params.id); if (!p) return res.status(404).json({ error: '未找到' }); p.stars = Math.max(0, Math.min(5, Math.round(Number(req.body.stars) || 0))); persistDB(); res.json({ ok: true, stars: p.stars }); });
 appServer.post('/api/photos/:id/flag', (req, res) => { const p = db.photos.find(x => x.id === req.params.id); if (!p) return res.status(404).json({ error: '未找到' }); p.flag = (req.body.flag === 'pick' || req.body.flag === 'reject') ? req.body.flag : null; persistDB(); res.json({ ok: true, flag: p.flag }); });

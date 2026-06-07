@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.0.4
+
+### 中文
+- 新增 OOBE（开箱即用体验）首次运行引导教程，通过 Windows 注册表持久化状态
+- 新增设置页面"重置引导教程"按钮，允许用户重新触发 OOBE 流程
+- 修复日志轮转功能无限累积备份文件的问题，现仅保留最近 3 个备份
+- 修复清空日志功能未删除轮转备份文件的问题
+- 修复日志写入失败时可能导致服务器崩溃的问题，增加异常捕获
+- 修复日志 API 返回计数不准确的问题，现正确返回匹配总数与实际返回数
+- 修复前端日志渲染时字段为空可能导致崩溃的问题，增加空值防护
+- 修复日志来源字段存在 XSS 风险的问题，改用 textContent 安全渲染
+
+### English
+- Added OOBE (Out-of-Box Experience) first-run tutorial with Windows Registry persistence
+- Added "Reset Tutorial" button in settings page allowing users to re-trigger OOBE flow
+- Fixed log rotation creating unlimited backup files, now keeps only the 3 most recent backups
+- Fixed log clear functionality not deleting rotated backup files
+- Fixed potential server crash on log write failure, added exception handling
+- Fixed log API returning inaccurate counts, now correctly returns total matched vs actual returned
+- Fixed frontend log rendering crash when fields are null/undefined, added null guards
+- Fixed XSS vulnerability in log source field rendering, switched to safe textContent pattern
+
+### Release Assets
+- `Luma Studio Setup 1.0.4.exe` — Windows installer, recommended for most users
+- `Luma Studio 1.0.4.exe` — Windows portable build, recommended for direct use without installation
+- `Luma Studio BAT 1.0.4.zip` — Windows bat-script edition, packaged as a zip for release distribution
+
+### Notes
+- This release focuses on first-run user experience (OOBE) and comprehensive logging system stability improvements.
+
+---
+
 ## v1.0.3
 
 ### 中文

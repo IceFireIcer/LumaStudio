@@ -39,6 +39,22 @@ fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const LOG_FILE = path.join(LOG_DIR, 'app.log');
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB 限制
+const MAX_LOG_BACKUPS = 3; // 最多保留 3 个轮转备份，超出删除最旧的
+
+// 清理过多的轮转备份文件，仅保留最近 MAX_LOG_BACKUPS 个
+function cleanupLogBackups() {
+  try {
+    const backups = fs.readdirSync(LOG_DIR)
+      .filter(f => /^app-\d+\.log$/.test(f))
+      .map(f => ({ name: f, time: parseInt(f.match(/\d+/)[0], 10) }))
+      .sort((a, b) => b.time - a.time); // 新→旧
+    for (const old of backups.slice(MAX_LOG_BACKUPS)) {
+      fs.unlinkSync(path.join(LOG_DIR, old.name));
+    }
+  } catch (e) {
+    console.error('清理日志备份失败:', e.message);
+  }
+}
 
 // 日志写入函数
 function logMessage(level, source, message, data = null) {
@@ -60,14 +76,19 @@ function logMessage(level, source, message, data = null) {
       if (stats.size > MAX_LOG_SIZE) {
         const backupFile = path.join(LOG_DIR, `app-${Date.now()}.log`);
         fs.renameSync(LOG_FILE, backupFile);
+        cleanupLogBackups(); // 轮转后清理过旧备份，避免无限堆积
       }
     }
   } catch (e) {
     console.error('日志轮转失败:', e.message);
   }
 
-  // 写入日志文件
-  fs.appendFileSync(LOG_FILE, logLine, 'utf8');
+  // 写入日志文件（写入失败不应中断主流程）
+  try {
+    fs.appendFileSync(LOG_FILE, logLine, 'utf8');
+  } catch (e) {
+    console.error('写入日志失败:', e.message);
+  }
 
   // 同时输出到控制台
   const consoleMsg = `[${timestamp}] [${level.toUpperCase()}] [${source}] ${message}`;
@@ -727,12 +748,15 @@ app.get('/api/logs', (req, res) => {
       logs = logs.filter(l => l.source.toLowerCase() === source.toLowerCase());
     }
 
+    const totalMatched = logs.length; // 过滤后、截断前的总数
+
     // 取最近的 N 条（文件是追加的，所以需要反转）
     logs = logs.slice(-parseInt(limit)).reverse();
 
     res.json({
       logs,
-      total: logs.length,
+      total: totalMatched,    // 符合过滤条件的日志总数
+      returned: logs.length,  // 本次实际返回的条数
       logDir: LOG_DIR,
       logFile: LOG_FILE
     });
@@ -747,6 +771,14 @@ app.post('/api/logs/clear', (req, res) => {
   try {
     if (fs.existsSync(LOG_FILE)) {
       fs.writeFileSync(LOG_FILE, '', 'utf8');
+    }
+    // 同时删除所有轮转备份，确保"清空"是彻底的
+    try {
+      fs.readdirSync(LOG_DIR)
+        .filter(f => /^app-\d+\.log$/.test(f))
+        .forEach(f => fs.unlinkSync(path.join(LOG_DIR, f)));
+    } catch (e) {
+      console.error('清理日志备份失败:', e.message);
     }
     logger.info('backend', '日志已清空');
     res.json({ ok: true });
