@@ -1,16 +1,17 @@
 {
   "name": "luma-studio",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A beautiful, self-hosted photo viewer and Lightroom-style image editor with a Node.js backend.",
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node electron-launch.cjs",
+    "dev": "node electron-launch.cjs",
     "electron": "node electron-launch.cjs",
     "build:win": "electron-builder --win --x64",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "test": "node --test"
   },
   "keywords": [
     "photo",
@@ -30,7 +31,7 @@
   "dependencies": {
     "exifr": "^7.1.3",
     "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.0.0",
     "nanoid": "^5.0.7",
     "piexifjs": "^1.0.6",
     "sharp": "^0.33.5",
@@ -48,6 +49,7 @@
     },
     "files": [
       "electron-main.cjs",
+      "server-app.cjs",
       "electron-launch.cjs",
       "public/**/*",
       "storage/.gitkeep",

@@ -92,7 +92,8 @@ function renderGrid(){
     card.className = 'card' + (selected.has(p.id) ? ' selected' : '');
     card.dataset.id = p.id;
     card.style.animationDelay = (i*0.035)+'s';
-    const starStr = p.stars > 0 ? '★'.repeat(p.stars) + '☆'.repeat(5-p.stars) : '';
+    const starN = Math.max(0, Math.min(5, +p.stars || 0));
+    const starStr = starN > 0 ? '★'.repeat(starN) + '☆'.repeat(5-starN) : '';
     const flagHtml = p.flag === 'pick' ? '<div class="flag-badge pick show">精选</div>'
                    : p.flag === 'reject' ? '<div class="flag-badge reject show">排除</div>'
                    : '';
@@ -124,11 +125,17 @@ function renderGrid(){
 async function delPhoto(p, card){
   card.classList.add('removing');
   await new Promise(r=>setTimeout(r,320));
-  await api.del('/api/photos/'+p.id);
-  photos = photos.filter(x=>x.id!==p.id);
-  renderGrid();
-  $('#storageMini').textContent = `${photos.length} 张照片`;
-  toast('已删除');
+  try{
+    const r = await api.del('/api/photos/'+p.id);
+    if(!r.ok) throw new Error(r.error||'删除失败');
+    photos = photos.filter(x=>x.id!==p.id);
+    renderGrid();
+    $('#storageMini').textContent = `${photos.length} 张照片`;
+    toast('已删除');
+  }catch(e){
+    toast('删除失败:'+e.message, true);
+    card.classList.remove('removing');
+  }
 }
 
 /* ---- 上传 ---- */
@@ -168,10 +175,13 @@ async function uploadFiles(list){
 $('#clearAllBtn').onclick = $('#clearStorage').onclick = async ()=>{
   if(!photos.length) return;
   if(!confirm('确定清空全部照片?此操作不可恢复。')) return;
-  await api.del('/api/photos');
-  photos = []; renderGrid(); loadStats();
-  $('#storageMini').textContent = '0 张照片';
-  toast('已清空');
+  try{
+    const r = await api.del('/api/photos');
+    if(!r.ok) throw new Error(r.error||'清空失败');
+    photos = []; renderGrid(); loadStats();
+    $('#storageMini').textContent = '0 张照片';
+    toast('已清空');
+  }catch(e){ toast('清空失败:'+e.message, true); }
 };
 
 /* ============ 灯箱 ============ */
@@ -198,11 +208,9 @@ $('#lbInfo').onclick = ()=>{ closeLightbox(); openExif(photos[lbIndex]); };
 $('#lbDownload').onclick = ()=>{ if(photos[lbIndex]) downloadPhoto(photos[lbIndex]); };
 $('#lbRename').onclick = async ()=>{
   const p = photos[lbIndex]; if(!p) return;
-  const name = prompt('重命名照片', p.name);
-  if(name == null) return;
-  const trimmed = name.trim();
-  if(!trimmed){ toast('名称不能为空', true); return; }
-  const r = await api.post(`/api/photos/${p.id}/rename`, { name: trimmed });
+  const name = await showInputModal('重命名照片', '新名称', p.name, '输入新的照片名称');
+  if(!name) return;
+  const r = await api.post(`/api/photos/${p.id}/rename`, { name });
   if(r.ok){ p.name = r.photo.name; $('#lbCap').textContent=`${p.name} · ${p.width}×${p.height} · ${fmtSize(p.size)}`; await loadPhotos(); toast('已重命名 ✓'); }
   else toast(r.error||'重命名失败', true);
 };
@@ -222,7 +230,7 @@ let redoStack = []; // 重做栈
 
 function defaultEdit(){
   return { brightness:100,contrast:100,saturation:100,hue:0,sharpen:0,blur:0,grayscale:false,
-    rotate:0, flipH:false, flipV:false, crop:null };
+    rotate:0, flipH:false, flipV:false, crop:null, resize:null };
 }
 
 function saveEditState(){
@@ -252,6 +260,10 @@ function applyEditState(){
   $('#sharpen').value = edit.sharpen;
   $('#blur').value = edit.blur;
   $('#grayscale').checked = edit.grayscale;
+  if(edit.resize && current){
+    $('#reW').value = edit.resize.width;
+    $('#reH').value = edit.resize.height;
+  }
   updateSliderLabels();
   applyFilter();
 }
@@ -268,6 +280,7 @@ function openEditor(p){
   $('#editName').textContent = p.name;
   $('#editDims').textContent = `${p.width}×${p.height}`;
   $('#origDims').textContent = `${p.width}×${p.height}`;
+  edit.resize = { width: p.width, height: p.height };
   $('#reW').value = p.width; $('#reH').value = p.height;
   resetSliders();
   setActivePreset('none');
@@ -295,7 +308,7 @@ function updateSliderLabels(){
 // 实时 CSS 滤镜预览(裁剪/旋转由 transform 体现)
 function applyFilter(){
   const b=$('#brightness').value/100, c=$('#contrast').value/100, s=$('#saturation').value/100;
-  const h=$('#hue').value, bl=$('#blur').value/4, gray=$('#grayscale').checked?1:0;
+  const h=$('#hue').value, bl=$('#blur').value/2, gray=$('#grayscale').checked?1:0;
   let f = `brightness(${b}) contrast(${c}) saturate(${s}) hue-rotate(${h}deg) grayscale(${gray})`;
   if(bl>0) f += ` blur(${bl}px)`;
   editImg.style.filter = f;
@@ -314,7 +327,7 @@ $('#grayscale').addEventListener('change',()=>{ saveEditState(); applyFilter(); 
 $('#resetAdjust').onclick = ()=>{
   edit = defaultEdit();
   resetSliders();
-  if(current){ $('#reW').value = current.width; $('#reH').value = current.height; }
+  if(current){ edit.resize = { width: current.width, height: current.height }; $('#reW').value = current.width; $('#reH').value = current.height; }
   setActivePreset('none');
   applyFilter();
   toast('已重置全部');
@@ -334,6 +347,7 @@ function setActivePreset(name){
 }
 $$('#presets .chip').forEach(c=>c.onclick=()=>{
   const p = PRESETS[c.dataset.preset]; if(!p) return;
+  saveEditState();
   $('#brightness').value=p.brightness; $('#contrast').value=p.contrast;
   $('#saturation').value=p.saturation; $('#hue').value=p.hue; $('#grayscale').checked=p.grayscale;
   updateSliderLabels(); applyFilter(); setActivePreset(c.dataset.preset);
@@ -353,16 +367,22 @@ $('#flipH').onclick = ()=>{ saveEditState(); edit.flipH=!edit.flipH; applyFilter
 $('#flipV').onclick = ()=>{ saveEditState(); edit.flipV=!edit.flipV; applyFilter(); };
 
 $('#reW').addEventListener('input',()=>{
+  saveEditState();
   if($('#lockRatio').checked && current){ $('#reH').value = Math.round($('#reW').value / current.width * current.height); }
+  edit.resize = { width: Math.max(1, +$('#reW').value || 1), height: Math.max(1, +$('#reH').value || 1) };
 });
 $('#reH').addEventListener('input',()=>{
+  saveEditState();
   if($('#lockRatio').checked && current){ $('#reW').value = Math.round($('#reH').value / current.height * current.width); }
+  edit.resize = { width: Math.max(1, +$('#reW').value || 1), height: Math.max(1, +$('#reH').value || 1) };
 });
 $$('[data-scale]').forEach(b=>b.onclick=()=>{
   if(!current) return;
+  saveEditState();
   const s = parseFloat(b.dataset.scale);
-  $('#reW').value = Math.round(current.width*s);
-  $('#reH').value = Math.round(current.height*s);
+  edit.resize = { width: Math.max(1, Math.round(current.width*s)), height: Math.max(1, Math.round(current.height*s)) };
+  $('#reW').value = edit.resize.width;
+  $('#reH').value = edit.resize.height;
   toast(`尺寸设为 ${Math.round(s*100)}%`);
 });
 
@@ -438,20 +458,44 @@ cropBox.addEventListener('pointermove', e=>{
 });
 cropBox.addEventListener('pointerup',()=>cropDrag=null);
 
+// 显示画面 = rotate(flips(裁剪源))；把显示空间矩形反向换算回源空间（自动校正方向后的像素坐标）
+function unrotateRect(rect, angle, W, H){
+  switch(angle){
+    case 90:  return { x: rect.y, y: H - rect.w - rect.x, w: rect.h, h: rect.w };
+    case 180: return { x: W - rect.x - rect.w, y: H - rect.y - rect.h, w: rect.w, h: rect.h };
+    case 270: return { x: W - rect.y - rect.h, y: rect.x, w: rect.h, h: rect.w };
+    default:  return { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+  }
+}
+
 $('#applyCrop').onclick = ()=>{
   const imgR = editImg.getBoundingClientRect();
   const boxR = cropBox.getBoundingClientRect();
-  const scaleX = current.width / imgR.width;
-  const scaleY = current.height / imgR.height;
-  edit.crop = {
-    left: Math.max(0,(boxR.left-imgR.left)*scaleX),
-    top: Math.max(0,(boxR.top-imgR.top)*scaleY),
-    width: Math.min(current.width, boxR.width*scaleX),
-    height: Math.min(current.height, boxR.height*scaleY),
+  const angle = ((Math.round(edit.rotate || 0) % 360) + 360) % 360;
+  const rot90 = angle === 90 || angle === 270;
+  const rotW = rot90 ? current.height : current.width;
+  const rotH = rot90 ? current.width : current.height;
+  const sx = rotW / imgR.width;
+  const sy = rotH / imgR.height;
+  let rect = {
+    x: (boxR.left - imgR.left) * sx,
+    y: (boxR.top - imgR.top) * sy,
+    w: boxR.width * sx,
+    h: boxR.height * sy,
   };
+  rect = unrotateRect(rect, angle, current.width, current.height);
+  if(edit.flipH) rect.x = current.width - rect.x - rect.w;
+  if(edit.flipV) rect.y = current.height - rect.y - rect.h;
+  const clamp = (v, max) => Math.max(0, Math.min(v, max));
+  const left = clamp(Math.round(rect.x), current.width);
+  const top = clamp(Math.round(rect.y), current.height);
+  const width = clamp(Math.round(rect.w), current.width - left);
+  const height = clamp(Math.round(rect.h), current.height - top);
+  if(width < 1 || height < 1){ toast('裁剪区域过小', true); return; }
+  edit.crop = { left, top, width, height };
   cropping=false; cropOverlay.hidden=true; $('#cropRatios').hidden=true; $('#applyCrop').hidden=true;
   $('#cropToggle').textContent='✂ 开启裁剪';
-  toast(`已标记裁剪 ${Math.round(edit.crop.width)}×${Math.round(edit.crop.height)}`);
+  toast(`已标记裁剪 ${width}×${height}`);
 };
 
 /* ---- 导出 ---- */
@@ -510,7 +554,7 @@ function buildEditBody(mode){
       grayscale:$('#grayscale').checked,
     },
     transform:{ rotate:edit.rotate, flipH:edit.flipH, flipV:edit.flipV, crop:edit.crop },
-    resize:{ width:+$('#reW').value, height:+$('#reH').value },
+    resize: edit.resize || { width:+$('#reW').value, height:+$('#reH').value },
     output:{ format:$('#outFormat').value, quality:+$('#quality').value },
     mode,
   };
@@ -521,11 +565,9 @@ $('#editName').title = '双击重命名';
 $('#editName').style.cursor = 'pointer';
 $('#editName').ondblclick = async ()=>{
   if(!current) return;
-  const name = prompt('重命名照片', current.name);
-  if(name == null) return;
-  const trimmed = name.trim();
-  if(!trimmed){ toast('名称不能为空', true); return; }
-  const r = await api.post(`/api/photos/${current.id}/rename`, { name: trimmed });
+  const name = await showInputModal('重命名照片', '新名称', current.name, '输入新的照片名称');
+  if(!name) return;
+  const r = await api.post(`/api/photos/${current.id}/rename`, { name });
   if(r.ok){
     current.name = r.photo.name;
     $('#editName').textContent = current.name;
@@ -679,28 +721,41 @@ $('#formatFilter').addEventListener('change', loadPhotos);
 /* ---- 批量操作 ---- */
 $('#batchPick').onclick = async ()=>{
   const ids = [...selected];
-  await api.post('/api/photos/batch/flag', { ids, flag: 'pick' });
-  toast(`已标记 ${ids.length} 张为精选 ✓`); await loadPhotos();
+  try{
+    const r = await api.post('/api/photos/batch/flag', { ids, flag: 'pick' });
+    if(!r.ok) throw new Error(r.error||'操作失败');
+    toast(`已标记 ${ids.length} 张为精选 ✓`); await loadPhotos();
+  }catch(e){ toast('操作失败:'+e.message, true); }
 };
 $('#batchReject').onclick = async ()=>{
   const ids = [...selected];
-  await api.post('/api/photos/batch/flag', { ids, flag: 'reject' });
-  toast(`已标记 ${ids.length} 张为排除 ✓`); await loadPhotos();
+  try{
+    const r = await api.post('/api/photos/batch/flag', { ids, flag: 'reject' });
+    if(!r.ok) throw new Error(r.error||'操作失败');
+    toast(`已标记 ${ids.length} 张为排除 ✓`); await loadPhotos();
+  }catch(e){ toast('操作失败:'+e.message, true); }
 };
 $('#batchRate').onclick = async ()=>{
   const s = prompt('批量评分 (0-5 星,0 为清除):', '5');
   if(s == null) return;
   const ids = [...selected];
-  await api.post('/api/photos/batch/stars', { ids, stars: +s });
-  toast(`已对 ${ids.length} 张评分 ✓`); await loadPhotos();
+  try{
+    const r = await api.post('/api/photos/batch/stars', { ids, stars: +s });
+    if(!r.ok) throw new Error(r.error||'操作失败');
+    toast(`已对 ${ids.length} 张评分 ✓`); await loadPhotos();
+  }catch(e){ toast('操作失败:'+e.message, true); }
 };
 $('#batchDelete').onclick = async ()=>{
   const ids = [...selected];
   if(!confirm(`确定删除选中的 ${ids.length} 张照片?不可恢复。`)) return;
   showLoading();
-  await api.post('/api/photos/batch/delete', { ids });
-  selected.clear(); await loadPhotos(); hideLoading();
-  toast(`已删除 ${ids.length} 张照片`);
+  try{
+    const r = await api.post('/api/photos/batch/delete', { ids });
+    if(!r.ok) throw new Error(r.error||'删除失败');
+    selected.clear(); await loadPhotos();
+    toast(`已删除 ${ids.length} 张照片`);
+  }catch(e){ toast('删除失败:'+e.message, true); }
+  hideLoading();
 };
 $('#batchZip').onclick = async ()=>{
   const ids = [...selected];
@@ -731,16 +786,22 @@ $('#batchAlbum').onclick = async ()=>{
 
 /* ============ 评分/标记 ============ */
 async function setStars(id, stars){
-  await api.post(`/api/photos/${id}/stars`, { stars });
-  const p = photos.find(x=>x.id===id);
-  if(p) p.stars = stars;
-  renderGrid();
+  try{
+    const r = await api.post(`/api/photos/${id}/stars`, { stars });
+    if(!r.ok) throw new Error(r.error||'评分失败');
+    const p = photos.find(x=>x.id===id);
+    if(p) p.stars = stars;
+    renderGrid();
+  }catch(e){ toast('评分失败:'+e.message, true); }
 }
 async function setFlag(id, flag){
-  await api.post(`/api/photos/${id}/flag`, { flag });
-  const p = photos.find(x=>x.id===id);
-  if(p) p.flag = flag;
-  renderGrid();
+  try{
+    const r = await api.post(`/api/photos/${id}/flag`, { flag });
+    if(!r.ok) throw new Error(r.error||'标记失败');
+    const p = photos.find(x=>x.id===id);
+    if(p) p.flag = flag;
+    renderGrid();
+  }catch(e){ toast('标记失败:'+e.message, true); }
 }
 
 /* ============ 幻灯片 ============ */

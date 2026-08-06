@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.0.5
+
+### 中文
+- 修复编辑器旋转功能在保存/下载时被静默忽略的问题（sharp 自动方向校正与显式旋转冲突）
+- 修复旋转/翻转后裁剪区域与实际输出不一致的问题，坐标统一在源像素空间换算
+- 修复"抹除全部元数据"导致照片被有损重压缩的问题，JPEG 现改为无损移除 EXIF
+- 修复请求日志中间件位置错误导致大部分 API 请求不记录的问题
+- 修复设置项未校验导致上传失败的问题（thumbSize 等非法值会被钳制到安全范围）
+- 升级 multer 至 2.x，修复已知安全漏洞
+- 新增同源校验，阻止恶意网页跨站操纵本地服务（CSRF）
+- 新增统一错误处理与进程级异常兜底，避免异常导致崩溃
+- 上传增加扩展名白名单、真实格式校验与逐文件错误隔离，失败不再产生孤儿文件
+- ZIP 导出文件名净化，防止非法字符与路径逃逸
+- db.json 改为原子写入，损坏时自动备份并回退
+- Electron：数据目录迁移至 userData（含旧数据一键迁移），新增单实例锁
+- 删除 web 版与重复代码（server.js / electron-main.mjs），服务端逻辑统一到 server-app.cjs
+- 新增 node:test 回归测试（npm test），覆盖上述缺陷
+
+### English
+- Fixed editor rotation being silently ignored in saved/downloaded output (sharp auto-orient conflicted with explicit rotation)
+- Fixed crop region mismatch after rotate/flip; coordinates now unified in source pixel space
+- Fixed "strip all metadata" re-compressing photos lossily; JPEG now strips EXIF losslessly
+- Fixed request-logging middleware placement so API requests are actually logged
+- Added settings validation (invalid values such as thumbSize are clamped)
+- Upgraded multer to 2.x (known CVEs fixed)
+- Added same-origin check to block cross-site requests to the local service (CSRF)
+- Added unified error handling and process-level fallbacks
+- Upload now validates extension and real image format, and isolates per-file failures (no orphan files)
+- Sanitized ZIP entry names
+- db.json now written atomically with corrupt-backup recovery
+- Electron: data moved to userData with one-time legacy migration; added single-instance lock
+- Removed web version and duplicated code (server.js / electron-main.mjs); server logic consolidated in server-app.cjs
+- Added node:test regression suite (npm test)
+
 ## v1.0.4
 
 ### 中文
