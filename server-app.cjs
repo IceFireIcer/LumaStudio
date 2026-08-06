@@ -52,6 +52,11 @@ function normalizeAngle(angle) {
 }
 
 /* ============ 日志系统 ============ */
+function formatLocalTime(date = new Date()) {
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
 function createLogger(logDir) {
   fs.mkdirSync(logDir, { recursive: true });
   const LOG_FILE = path.join(logDir, 'app.log');
@@ -71,7 +76,7 @@ function createLogger(logDir) {
   }
 
   function logMessage(level, source, message, data = null) {
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 23);
+    const timestamp = formatLocalTime();
     const logEntry = {
       time: timestamp,
       level: String(level).toUpperCase(),

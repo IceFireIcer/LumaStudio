@@ -1031,9 +1031,9 @@ async function loadLogs(){
       tbody.appendChild(tr);
     });
 
-    // 自动滚动到底部（最新日志）
+    // 自动滚动到顶部（最新日志在最上方）
     const wrap = $('.logs-table-wrap');
-    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+    if (wrap) wrap.scrollTop = 0;
 
   } catch (e) {
     console.error('加载日志失败:', e);
@@ -1045,7 +1045,9 @@ async function loadLogs(){
 async function logFrontend(level, message, data = null) {
   try {
     // 同时输出到控制台
-    const ts = new Date().toISOString().replace('T', ' ').substring(0, 23);
+    const now = new Date();
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;
     const consoleMsg = `[${ts}] [${level.toUpperCase()}] [frontend] ${message}`;
     if (level === 'error') console.error(consoleMsg, data);
     else if (level === 'warn') console.warn(consoleMsg, data);
