@@ -104,31 +104,30 @@ install.bat          # %LOCALAPPDATA%\LumaStudio にインストール + デス�
 ### Electron デスクトップ版
 
 ```
-git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
+git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm run electron
 ```
 
-> **注意**: Electron 版は現在起動とビルドが可能です。ソースコードは `electron` ブランチ、Windows ビルド成果物は `electron-releases` ブランチにあります。
+> **注意**: Luma Studio はデスクトップ専用アプリになりました。ソースコードはすべて `main` ブランチにあります。
 
 ---
 
 ## プロジェクト構成
 
 ```
-LumaStudio/
-├── server.js              # Express バックエンド + sharp パイプライン + REST API
-├── electron-main.cjs      # Electron メインプロセス（CJS）
-├── package.json
+.
+├── server-app.cjs          # Express バックエンド + sharp パイプライン + REST API
+├── electron-main.cjs       # Electron メインプロセス
+├── electron-launch.cjs     # Electron ランチャー
 ├── public/
-│   ├── index.html         # SPA シェル
-│   ├── style.css          # デザインシステム
-│   └── app.js             # フロントエンドロジック
-└── storage/               # 実行時に自動作成
-    ├── uploads/            # オリジナル＆処理済み画像
-    ├── thumbs/             # 生成された WebP サムネイル
-    └── data/               # db.json + settings.json
+│   ├── index.html          # SPA シェル
+│   ├── style.css           # デザインシステム
+│   └── app.js              # フロントエンドロジック
+├── storage/                # 実行時データ (userData)
+├── test/                   # 回帰テスト (node:test)
+└── package.json
 ```
 
 ---

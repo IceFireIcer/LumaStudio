@@ -104,31 +104,30 @@ install.bat          # 安装到 %LOCALAPPDATA%\LumaStudio + 创建桌面快捷�
 ### Electron 桌面版
 
 ```
-git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
+git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm run electron
 ```
 
-> **注意**：Electron 版已可启动并构建。源码位于 `electron` 分支，Windows 构建产物位于 `electron-releases` 分支。
+> **注意**：Luma Studio 现为桌面版应用，所有源码均位于 `main` 分支。
 
 ---
 
 ## 项目结构
 
 ```
-LumaStudio/
-├── server.js              # Express 后端 + sharp 图像管线 + REST API
-├── electron-main.cjs      # Electron 主进程入口（CJS）
-├── package.json
+.
+├── server-app.cjs          # Express 后端 + sharp 图像管线 + REST API
+├── electron-main.cjs       # Electron 主进程
+├── electron-launch.cjs     # Electron 启动器
 ├── public/
-│   ├── index.html         # SPA 外壳
-│   ├── style.css          # 设计系统
-│   └── app.js             # 前端逻辑
-└── storage/               # 运行时自动创建
-    ├── uploads/            # 原始 & 处理后的图片
-    ├── thumbs/             # 生成的 WebP 缩略图
-    └── data/               # db.json + settings.json
+│   ├── index.html          # SPA 外壳
+│   ├── style.css           # 设计系统
+│   └── app.js              # 前端逻辑
+├── storage/                # 运行时数据（userData）
+├── test/                   # 回归测试（node:test）
+└── package.json
 ```
 
 ---

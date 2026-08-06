@@ -104,31 +104,30 @@ install.bat          # %LOCALAPPDATA%\LumaStudio에 설치 + 바탕화면 바로
 ### Electron 데스크톱
 
 ```
-git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
+git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm run electron
 ```
 
-> **참고**: Electron 버전은 이제 실행 및 빌드가 가능합니다. 소스 코드는 `electron` 브랜치에 있고, Windows 빌드 산출물은 `electron-releases` 브랜치에 있습니다.
+> **참고**: Luma Studio는 이제 데스크톱 전용 앱이며 모든 소스 코드는 `main` 브랜치에 있습니다.
 
 ---
 
 ## 프로젝트 구조
 
 ```
-LumaStudio/
-├── server.js              # Express 백엔드 + sharp 파이프라인 + REST API
-├── electron-main.cjs      # Electron 메인 프로세스 (CJS)
-├── package.json
+.
+├── server-app.cjs          # Express 백엔드 + sharp 파이프라인 + REST API
+├── electron-main.cjs       # Electron 메인 프로세스
+├── electron-launch.cjs     # Electron 런처
 ├── public/
-│   ├── index.html         # SPA 셸
-│   ├── style.css          # 디자인 시스템
-│   └── app.js             # 프론트엔드 로직
-└── storage/               # 런타임에 자동 생성
-    ├── uploads/            # 원본 및 처리된 이미지
-    ├── thumbs/             # 생성된 WebP 썸네일
-    └── data/               # db.json + settings.json
+│   ├── index.html          # SPA 셸
+│   ├── style.css           # 디자인 시스템
+│   └── app.js              # 프론트엔드 로직
+├── storage/                # 런타임 데이터 (userData)
+├── test/                   # 회귀 테스트 (node:test)
+└── package.json
 ```
 
 ---

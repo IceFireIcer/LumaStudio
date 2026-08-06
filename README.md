@@ -1,7 +1,5 @@
 # Luma Studio
 
-> ⚠️ **这是 Electron 桌面版源码分支** | Web服务端版本请访问 [`main`](https://github.com/IceFireIcer/LumaStudio/tree/main) 分支
-
 > **[中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
 A self-hosted photo viewer and **Lightroom-style image editor**. Upload once, keep forever — your photos are stored as real files on disk, not in browser storage.
@@ -106,31 +104,30 @@ Double-click the desktop shortcut to launch. The script auto-detects and install
 ### Electron Desktop
 
 ```
-git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
+git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm run electron
 ```
 
-> **Note**: The Electron version can now launch and build successfully. Source code is on the `electron` branch, and Windows build artifacts are on the `electron-releases` branch.
+> **Note**: Luma Studio is now a desktop-only app; all source code lives on the single `main` branch.
 
 ---
 
 ## Project Structure
 
 ```
-LumaStudio/
-├── server.js              # Express backend + sharp pipeline + REST API
-├── electron-main.cjs      # Electron entry point (CJS)
-├── package.json
+.
+├── server-app.cjs          # Express backend + sharp pipeline + REST API
+├── electron-main.cjs       # Electron main process
+├── electron-launch.cjs     # Electron launcher
 ├── public/
-│   ├── index.html         # SPA shell
-│   ├── style.css          # Design system
-│   └── app.js             # Front-end logic
-└── storage/               # Created at runtime
-    ├── uploads/            # Original & processed images
-    ├── thumbs/             # Generated WebP thumbnails
-    └── data/               # db.json + settings.json
+│   ├── index.html          # SPA shell
+│   ├── style.css           # Design system
+│   └── app.js              # Front-end logic
+├── storage/                # Runtime data (userData)
+├── test/                   # Regression tests (node:test)
+└── package.json
 ```
 
 ---

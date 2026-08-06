@@ -104,31 +104,30 @@ Doppelklick auf die Desktop-Verknüpfung zum Starten. Das Skript erkennt und ins
 ### Electron Desktop
 
 ```
-git clone -b electron https://github.com/IceFireIcer/LumaStudio.git
+git clone https://github.com/IceFireIcer/LumaStudio.git
 cd LumaStudio
 npm install
 npm run electron
 ```
 
-> **Hinweis**: Die Electron-Version kann jetzt erfolgreich gestartet und gebaut werden. Der Quellcode liegt im Branch `electron`, die Windows-Build-Artefakte im Branch `electron-releases`.
+> **Hinweis**: Luma Studio ist jetzt eine reine Desktop-App; der gesamte Quellcode liegt im Branch `main`.
 
 ---
 
 ## Projektstruktur
 
 ```
-LumaStudio/
-├── server.js              # Express-Backend + sharp-Pipeline + REST-API
-├── electron-main.cjs      # Electron-Einstiegspunkt (CJS)
-├── package.json
+.
+├── server-app.cjs          # Express-Backend + sharp-Pipeline + REST-API
+├── electron-main.cjs       # Electron-Hauptprozess
+├── electron-launch.cjs     # Electron-Launcher
 ├── public/
-│   ├── index.html         # SPA-Shell
-│   ├── style.css          # Design-System
-│   └── app.js             # Frontend-Logik
-└── storage/               # Wird zur Laufzeit erstellt
-    ├── uploads/            # Originale und bearbeitete Bilder
-    ├── thumbs/             # Generierte WebP-Thumbnails
-    └── data/               # db.json + settings.json
+│   ├── index.html          # SPA-Shell
+│   ├── style.css           # Design-System
+│   └── app.js              # Frontend-Logik
+├── storage/                # Laufzeitdaten (userData)
+├── test/                   # Regressionstests (node:test)
+└── package.json
 ```
 
 ---

@@ -6,7 +6,7 @@ Luma Studio is a self-hosted photo viewer and Lightroom-style image editor packa
 
 The repository has a single branch, `main` (the former `electron` branch, renamed; the standalone web version and release-artifact branches were removed). All development happens here.
 
-Source layout (`main/LumaStudio-electron/`):
+Source layout (repository root):
 
 - `server-app.cjs` — shared Express app + image pipeline (single source of truth)
 - `electron-main.cjs` — Electron main process (window, single-instance lock, data dir)
@@ -19,7 +19,7 @@ Photo files, thumbnails, and metadata live in the Electron `userData` directory 
 
 ## Build, Test, and Development Commands
 
-Requires Node.js >= 18. Run from `LumaStudio-electron/`:
+Requires Node.js >= 18. Run from the repository root:
 
 - `npm install` — install dependencies
 - `npm start` / `npm run dev` / `npm run electron` — launch the desktop app
