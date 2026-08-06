@@ -21,3 +21,7 @@ Thumbs.db
 test*.jpg
 test*.png
 t[0-9].*
+
+# Build output
+release/
+*.iss.tmp
