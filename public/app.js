@@ -19,6 +19,7 @@ function downloadPhoto(p){
 let toastTimer;
 function toast(msg, err=false){
   const t = $('#toast'); t.textContent = msg;
+  if (window.UIAnim) { window.UIAnim.toast(t, msg, err); return; }
   t.className = 'toast show' + (err?' err':'');
   clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.className='toast', 2400);
 }
@@ -87,11 +88,11 @@ async function loadAlbums(){
 function renderGrid(){
   grid.innerHTML = '';
   emptyState.classList.toggle('show', photos.length===0);
+  const cards = [];
   photos.forEach((p,i)=>{
     const card = document.createElement('div');
     card.className = 'card' + (selected.has(p.id) ? ' selected' : '');
     card.dataset.id = p.id;
-    card.style.animationDelay = (i*0.035)+'s';
     const starN = Math.max(0, Math.min(5, +p.stars || 0));
     const starStr = starN > 0 ? '★'.repeat(starN) + '☆'.repeat(5-starN) : '';
     const flagHtml = p.flag === 'pick' ? '<div class="flag-badge pick show">精选</div>'
@@ -119,7 +120,9 @@ function renderGrid(){
     card.querySelector('.dl').onclick = e=>{e.stopPropagation(); downloadPhoto(p);};
     card.querySelector('.del').onclick = e=>{e.stopPropagation(); delPhoto(p, card);};
     grid.appendChild(card);
+    cards.push(card);
   });
+  if (window.UIAnim) window.UIAnim.gridIn(cards);
 }
 
 async function delPhoto(p, card){
@@ -190,15 +193,23 @@ function openLightbox(i){
   lbIndex = i; const p = photos[i];
   $('#lbImg').src = '/files/'+p.file+'?v='+p.time;
   $('#lbCap').textContent = `${p.name} · ${p.width}×${p.height} · ${fmtSize(p.size)}`;
-  lightbox.classList.add('open');
+  if (window.UIAnim) window.UIAnim.lightbox(lightbox, $('#lbImg'), true);
+  else lightbox.classList.add('open');
 }
-function closeLightbox(){ lightbox.classList.remove('open'); }
+function closeLightbox(){
+  if (window.UIAnim) window.UIAnim.lightbox(lightbox, $('#lbImg'), false);
+  else lightbox.classList.remove('open');
+}
 function navLb(d){
   if(!photos.length) return;
   lbIndex = (lbIndex+d+photos.length)%photos.length;
   const p = photos[lbIndex], img = $('#lbImg');
-  img.style.opacity='0';
-  setTimeout(()=>{ img.src='/files/'+p.file+'?v='+p.time; $('#lbCap').textContent=`${p.name} · ${p.width}×${p.height} · ${fmtSize(p.size)}`; img.style.opacity='1'; },150);
+  const show = ()=>{ $('#lbCap').textContent=`${p.name} · ${p.width}×${p.height} · ${fmtSize(p.size)}`; };
+  if (window.UIAnim) window.UIAnim.crossfade(img, '/files/'+p.file+'?v='+p.time, show);
+  else {
+    img.style.opacity='0';
+    setTimeout(()=>{ img.src='/files/'+p.file+'?v='+p.time; show(); img.style.opacity='1'; },150);
+  }
 }
 $('#lbClose').onclick = closeLightbox;
 $('#lbPrev').onclick = ()=>navLb(-1);
@@ -815,12 +826,12 @@ function openSlideshow(){
 function slShow(){
   const p = photos[slIndex]; if(!p) return;
   const img = $('#slImg');
-  img.style.opacity = '0';
-  setTimeout(()=>{
-    img.src = '/files/'+p.file+'?v='+p.time;
-    img.style.opacity = '1';
-    $('#slInfo').textContent = `${slIndex+1}/${photos.length} · ${p.name} · ${p.width}×${p.height}`;
-  }, 200);
+  const show = ()=>{ $('#slInfo').textContent = `${slIndex+1}/${photos.length} · ${p.name} · ${p.width}×${p.height}`; };
+  if (window.UIAnim) window.UIAnim.crossfade(img, '/files/'+p.file+'?v='+p.time, show);
+  else {
+    img.style.opacity = '0';
+    setTimeout(()=>{ img.src = '/files/'+p.file+'?v='+p.time; show(); img.style.opacity = '1'; }, 200);
+  }
 }
 function slPlay(){
   if(slTimer){ clearInterval(slTimer); slTimer=null; $('#slPlay').textContent='▶'; return; }
@@ -1133,12 +1144,14 @@ function showInputModal(title, placeholder = '', defaultValue = '', hint = '') {
     field.value = defaultValue;
     hintEl.textContent = hint;
 
-    modal.hidden = false;
+    if (window.UIAnim) window.UIAnim.modal(modal, $('.modal-content', modal), true);
+    else modal.hidden = false;
     field.focus();
     field.select();
 
     const cleanup = (value) => {
-      modal.hidden = true;
+      if (window.UIAnim) window.UIAnim.modal(modal, $('.modal-content', modal), false);
+      else modal.hidden = true;
       cancelBtn.onclick = null;
       confirmBtn.onclick = null;
       field.onkeydown = null;

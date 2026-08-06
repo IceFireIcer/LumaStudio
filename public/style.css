@@ -275,6 +275,11 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.18)}
 .lightbox img{max-width:86vw;max-height:80vh;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.3);
   transform:scale(.85);transition:transform .4s cubic-bezier(.34,1.56,.64,1),opacity .2s}
 .lightbox.open img{transform:scale(1)}
+
+/* GSAP 接管动画时，关闭对应的 CSS 动画/过渡，避免双跑 */
+.ui-anim .card{animation:none!important}
+.ui-anim .lightbox,.ui-anim .lightbox img{transition:none!important}
+.ui-anim .toast{transition:none!important}
 .lb-nav{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;border:none;
   background:rgba(255,255,255,.92);box-shadow:var(--shadow);cursor:pointer;font-size:22px;color:var(--text);
   display:flex;align-items:center;justify-content:center;transition:transform .2s,background .2s}
