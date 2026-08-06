@@ -1,6 +1,6 @@
 # Luma Studio
 
-> **[English](README.md) | [中文](README_zh.md) | [日本語](README_ja.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
+> **[English](README_en.md) | [中文](README.md) | [日本語](README_ja.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
 셀프 호스팅 포토 뷰어 및 **Lightroom 스타일 이미지 편집기**. 한 번 업로드하면 영구 보관 — 사진은 브라우저 스토리지가 아닌 디스크의 실제 파일로 저장됩니다.
 
@@ -74,32 +74,6 @@ Luma Studio는 당신의 컴퓨터를 프라이빗 포토 워크숍으로 바꿔
 
 ### 사전 요구사항
 - [Node.js](https://nodejs.org/) **18+**
-
-### 소스 (개발용)
-
-```bash
-git clone https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-npm install
-npm start
-# 브라우저에서 http://localhost:7443 열기
-```
-
-커스텀 포트:
-
-```bash
-PORT=8080 npm start
-```
-
-### Windows 설치 프로그램 (bat 스크립트)
-
-```
-git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-install.bat          # %LOCALAPPDATA%\LumaStudio에 설치 + 바탕화면 바로가기 생성
-```
-
-바탕화면 바로가기를 더블클릭하여 시작. 스크립트는 Node.js가 없으면 자동으로 감지하고 설치합니다 (winget 또는 Chocolatey 경유).
 
 ### Electron 데스크톱
 

@@ -1,6 +1,6 @@
 # Luma Studio
 
-> **[English](README.md) | [中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md)**
+> **[English](README_en.md) | [中文](README.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md)**
 
 Selbst-gehosteter Foto-Viewer und **Lightroom-Stil Bildeditor**. Einmal hochladen, für immer behalten — Ihre Fotos werden als echte Dateien auf der Festplatte gespeichert, nicht im Browser-Speicher.
 
@@ -74,32 +74,6 @@ Luma Studio verwandelt Ihren Computer in ein privates Fotostudio. Durchstöbern 
 
 ### Voraussetzungen
 - [Node.js](https://nodejs.org/) **18+**
-
-### Quellcode (Entwicklung)
-
-```bash
-git clone https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-npm install
-npm start
-# http://localhost:7443 im Browser öffnen
-```
-
-Eigener Port:
-
-```bash
-PORT=8080 npm start
-```
-
-### Windows-Installer (bat-Skript)
-
-```
-git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-install.bat          # Installiert nach %LOCALAPPDATA%\LumaStudio + Desktop-Verknüpfung
-```
-
-Doppelklick auf die Desktop-Verknüpfung zum Starten. Das Skript erkennt und installiert Node.js automatisch bei Bedarf (über winget oder Chocolatey).
 
 ### Electron Desktop
 

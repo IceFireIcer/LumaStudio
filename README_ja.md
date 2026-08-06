@@ -1,6 +1,6 @@
 # Luma Studio
 
-> **[English](README.md) | [中文](README_zh.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
+> **[English](README_en.md) | [中文](README.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
 セルフホスト型フォトビューアー＆**Lightroom スタイル画像エディタ**。一度アップロードすれば永久保存——写真はブラウザのストレージではなく、ディスク上の実ファイルとして保存されます。
 
@@ -74,32 +74,6 @@ Luma Studio はあなたのマシンをプライベートフォトワークシ�
 
 ### 前提条件
 - [Node.js](https://nodejs.org/) **18+**
-
-### ソースコード（開発用）
-
-```bash
-git clone https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-npm install
-npm start
-# ブラウザで http://localhost:7443 を開く
-```
-
-カスタムポート：
-
-```bash
-PORT=8080 npm start
-```
-
-### Windows インストーラー（bat スクリプト）
-
-```
-git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-install.bat          # %LOCALAPPDATA%\LumaStudio にインストール + デスクトップショートカット作成
-```
-
-デスクトップショートカットをダブルクリックで起動。スクリプトは Node.js が未インストールの場合、自動的に検出・インストールします（winget または Chocolatey 経由）。
 
 ### Electron デスクトップ版
 

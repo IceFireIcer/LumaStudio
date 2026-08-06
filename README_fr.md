@@ -1,6 +1,6 @@
 # Luma Studio
 
-> **[English](README.md) | [中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
+> **[English](README_en.md) | [中文](README.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
 Visionneuse photo et éditeur d'images **style Lightroom**, auto-hébergé. Uploadez une fois, conservez pour toujours — vos photos sont stockées en tant que fichiers réels sur le disque, pas dans le stockage du navigateur.
 
@@ -74,32 +74,6 @@ Luma Studio transforme votre machine en un atelier photo privé. Parcourez votre
 
 ### Prérequis
 - [Node.js](https://nodejs.org/) **18+**
-
-### Code source (développement)
-
-```bash
-git clone https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-npm install
-npm start
-# Ouvrir http://localhost:7443 dans le navigateur
-```
-
-Port personnalisé :
-
-```bash
-PORT=8080 npm start
-```
-
-### Installateur Windows (script bat)
-
-```
-git clone -b windows-releases https://github.com/IceFireIcer/LumaStudio.git
-cd LumaStudio
-install.bat          # Installe dans %LOCALAPPDATA%\LumaStudio + raccourci bureau
-```
-
-Double-cliquez sur le raccourci bureau pour lancer. Le script détecte et installe automatiquement Node.js si nécessaire (via winget ou Chocolatey).
 
 ### Electron Desktop
 
