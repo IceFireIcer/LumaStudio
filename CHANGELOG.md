@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.0.6
+
+### 中文
+- 新增 GSAP 驱动的 UI 动效（网格卡片入场、灯箱、幻灯片、Toast、模态框），支持系统"减弱动态效果"偏好（prefers-reduced-motion），GSAP 缺失时自动降级为原有 CSS 过渡
+- 新增 UI 冒烟测试脚本，用 Electron 真实加载前端并捕获渲染进程 JS 错误（scripts/ui-smoke.cjs）
+- 新增 Inno Setup 安装脚本并内置简体中文语言文件，安装包支持选择安装目录与创建快捷方式
+- 应用源码迁移至仓库根目录，移除 LumaStudio-electron 子目录与冗余的 Web 版代码，服务端逻辑统一到 server-app.cjs
+- 默认 README 改为中文版，英文版移至 README_en.md
+- 修复日志时间显示为 UTC 的问题，改为本地时区时间（中国用户即 UTC+8）
+- 修复日志页实时刷新滚动位置错误的问题，现自动停留在最新日志（顶部）
+
+### English
+- Added GSAP-powered UI animations (grid entrance, lightbox, slideshow, toast, modal) with prefers-reduced-motion support and graceful fallback to CSS transitions
+- Added UI smoke test script that loads the frontend in a real Electron window and captures renderer errors (scripts/ui-smoke.cjs)
+- Added Inno Setup installer script with a bundled Simplified Chinese language file; installer supports choosing the install directory and creating shortcuts
+- Moved app source to the repository root, removed the LumaStudio-electron subdirectory and redundant web-only code, consolidating server logic in server-app.cjs
+- Default README is now Chinese; the English version moved to README_en.md
+- Fixed log timestamps showing UTC; now use local timezone (UTC+8 in China)
+- Fixed the log view real-time refresh scrolling to the wrong position; now stays on the newest logs at the top
+
+### Release Assets
+- `Luma Studio Setup 1.0.6.exe` — Windows installer, recommended for most users
+- `Luma Studio 1.0.6.exe` — Windows portable build, recommended for direct use without installation
+
+### Notes
+- This release focuses on UI polish (GSAP animations with reduced-motion support), a proper Inno Setup installer, and logging fixes (local timestamps + correct real-time scrolling).
+
+---
+
 ## v1.0.5
 
 ### 中文

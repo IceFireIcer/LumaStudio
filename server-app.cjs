@@ -317,7 +317,7 @@ function sanitizeZipName(name) {
 }
 
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.5', isElectron = false }) {
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.6', isElectron = false }) {
   sharp.cache(false);
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const { logger, LOG_FILE, LOG_DIR } = createLogger(logDir);
