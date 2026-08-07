@@ -31,7 +31,7 @@ Requires Node.js >= 18. Run from the repository root:
 - 2-space indentation, single quotes, semicolons; no linter is configured, so match the existing style
 - CommonJS (`require`) in `server-app.cjs` and Electron main files; plain browser JS in `public/`
 - camelCase for functions and variables; lowercase for files and directories
-- Source comments are written in Chinese; keep README language variants in sync
+- Source comments are written in Chinese; keep README.md (中文) and README_en.md in sync
 - Never commit runtime photo data — respect `.gitignore`
 
 ## Testing Guidelines

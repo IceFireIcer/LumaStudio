@@ -1,6 +1,6 @@
 # Luma Studio · 光影工作室
 
-> **[English](README_en.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
+> **[English](README_en.md)**
 
 自托管的桌面版图片查看器与 **Lightroom 风格图片编辑器**。上传一次，永久保存——照片以真实文件存储在磁盘上，不会随应用关闭丢失。
 
