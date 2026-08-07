@@ -36,6 +36,7 @@ let settings = {};
 let selected = new Set(); // 多选照片 ID 集合
 let albums = [];
 let activeAlbumId = null; // 正在浏览的相册
+let hideReject = false;   // 隐藏排除照片
 let slTimer = null; // 幻灯片定时器
 
 /* ============ 视图切换 ============ */
@@ -88,6 +89,7 @@ async function loadPhotos(){
   else if(flag) params.set('flag', flag);
   if(fmt) params.set('format', fmt);
   if(activeAlbumId) params.set('album', activeAlbumId);
+  if(hideReject) params.set('hideReject', '1');
   photos = await api.get('/api/search?'+params);
   renderGrid();
   updateBatchBar();
@@ -250,6 +252,7 @@ function openLightbox(i){
   else lightbox.classList.add('open');
 }
 function closeLightbox(){
+  if(cmpActive) closeCompare();
   if (window.UIAnim) window.UIAnim.lightbox(lightbox, $('#lbImg'), false);
   else lightbox.classList.remove('open');
 }
@@ -279,12 +282,61 @@ $('#lbRename').onclick = async ()=>{
   else toast(r.error||'重命名失败', true);
 };
 lightbox.addEventListener('click',e=>{ if(e.target===lightbox) closeLightbox(); });
-document.addEventListener('keydown',e=>{
-  if(!lightbox.classList.contains('open')) return;
-  if(e.key==='Escape') closeLightbox();
-  if(e.key==='ArrowLeft') navLb(-1);
-  if(e.key==='ArrowRight') navLb(1);
-});
+
+/* ============ 灯箱并排对比选片（C 键 / 对比按钮） ============ */
+let cmpActive = false;   // 对比模式
+let cmpIdx = -1;         // 左图索引；右图 = cmpIdx + 1
+let cmpSide = 1;         // 标记目标：0 左 / 1 右
+
+function openCompare(){
+  if(cmpActive || photos.length < 2) return;
+  cmpActive = true;
+  cmpIdx = Math.max(0, Math.min(lbIndex >= 0 ? lbIndex : 0, photos.length - 2));
+  cmpSide = 1;
+  lightbox.classList.add('compare');
+  $('#lbImg').style.display = 'none';
+  $('#lbCompareWrap').hidden = false;
+  $('#lbPrev').hidden = true;
+  $('#lbNext').hidden = true;
+  $('#lbCompare').textContent = '退出对比';
+  updateCompare();
+}
+function closeCompare(){
+  if(!cmpActive) return;
+  cmpActive = false;
+  lightbox.classList.remove('compare');
+  $('#lbImg').style.display = '';
+  $('#lbCompareWrap').hidden = true;
+  $('#lbPrev').hidden = false;
+  $('#lbNext').hidden = false;
+  $('#lbCompare').textContent = '对比';
+}
+function updateCompare(){
+  if(!cmpActive || photos.length < 2) return;
+  cmpIdx = Math.max(0, Math.min(cmpIdx, photos.length - 2));
+  const setImg = (img, cap, p, i)=>{
+    const src = '/files/' + p.file + '?v=' + p.time;
+    if(img.src !== src) img.src = src;
+    cap.textContent = `${i + 1}/${photos.length} · ${p.name}`;
+  };
+  setImg($('#lbImgA'), $('#lbCapA'), photos[cmpIdx], cmpIdx);
+  setImg($('#lbImgB'), $('#lbCapB'), photos[cmpIdx + 1], cmpIdx + 1);
+  updateCompareSide();
+}
+function updateCompareSide(){
+  [...$('#lbCompareWrap').querySelectorAll('.lb-cmp')]
+    .forEach((f, i) => f.classList.toggle('target', i === cmpSide));
+  $('#lbCmpHint').textContent =
+    `标记目标：${cmpSide === 0 ? '左' : '右'}侧 · Tab 切换 · ←/→ 换组 · Esc 退出`;
+}
+// 标记后自动进入下一组（设置 autoAdvance 可关闭）
+function afterCullMark(){
+  if(settings.autoAdvance !== false && cmpSide === 1){
+    cmpIdx = Math.min(cmpIdx + 1, photos.length - 2);
+  }
+  updateCompare();
+}
+$('#lbCompare').onclick = ()=>{ cmpActive ? closeCompare() : openCompare(); };
 
 /* ============ 编辑器 ============ */
 const editImg = $('#editImg');
@@ -338,6 +390,13 @@ function openEditor(p){
   edit = defaultEdit();
   undoStack = [];
   redoStack = [];
+  // 重置前后对比状态
+  baActive = false;
+  baOrigImg.hidden = true;
+  baDivider.hidden = true;
+  $('#baToggle').classList.remove('active');
+  $('#baToggle').textContent = '⇄ 对比原图';
+  $('#canvasStage').style.setProperty('--ba', '50%');
   switchView('editor');
   $('#editorEmpty').classList.remove('show');
   $('#editorWrap').classList.remove('hidden');
@@ -382,6 +441,8 @@ function applyFilter(){
   if(edit.flipH) tr.push('scaleX(-1)');
   if(edit.flipV) tr.push('scaleY(-1)');
   editImg.style.transform = tr.join(' ');
+  // 对比视图的原图层跟随同样的旋转/翻转，仅保留调色差异
+  if(baOrigImg) baOrigImg.style.transform = editImg.style.transform;
 }
 
 // 调整面板事件
@@ -571,6 +632,44 @@ $('#applyCrop').onclick = ()=>{
   toast(`已标记裁剪 ${width}×${height}`);
 };
 
+/* ---- 前后对比（原图 vs 编辑后，可拖动分界线） ---- */
+const baOrigImg = $('#baOrigImg'), baDivider = $('#baDivider');
+let baActive = false;
+
+$('#baToggle').onclick = toggleBA;
+function toggleBA(){
+  if(!current) return;
+  baActive = !baActive;
+  $('#baToggle').classList.toggle('active', baActive);
+  $('#baToggle').textContent = baActive ? '⇄ 退出对比' : '⇄ 对比原图';
+  baOrigImg.hidden = !baActive;
+  baDivider.hidden = !baActive;
+  if(baActive){
+    baOrigImg.src = editImg.src;
+    baOrigImg.style.transform = editImg.style.transform;
+    $('#canvasStage').style.setProperty('--ba', '50%');
+    // 对比时隐藏裁剪框，避免两层叠加干扰
+    cropOverlay.hidden = true;
+  } else if(cropping){
+    cropOverlay.hidden = false;
+    initCropBox();
+  }
+}
+
+let baDragX = null;
+baDivider.addEventListener('pointerdown', e=>{
+  baDragX = e.clientX;
+  baDivider.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+baDivider.addEventListener('pointermove', e=>{
+  if(baDragX == null) return;
+  const r = $('#canvasStage').getBoundingClientRect();
+  const pct = Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100));
+  $('#canvasStage').style.setProperty('--ba', pct + '%');
+});
+baDivider.addEventListener('pointerup', ()=>{ baDragX = null; });
+
 /* ---- 导出 ---- */
 $('#exportBtn').onclick = async ()=>{
   if(!current) return;
@@ -728,6 +827,7 @@ async function loadSettings(){
   $('#vSetQuality').textContent = settings.defaultQuality+'%';
   $('#setThumb').value = settings.thumbSize;
   $('#setAccent').value = settings.accent;
+  $('#setAutoAdvance').checked = settings.autoAdvance !== false;
   applyAccent(settings.accent);
   // 色板
   const sw = $('#swatches'); sw.innerHTML='';
@@ -746,6 +846,7 @@ $('#saveSettings').onclick = async ()=>{
     defaultQuality:+$('#setQuality').value,
     thumbSize:+$('#setThumb').value,
     accent:$('#setAccent').value,
+    autoAdvance: $('#setAutoAdvance').checked,
   };
   const r = await api.post('/api/settings', body);
   if(r.ok){ settings=r.settings; toast('设置已保存 ✓'); }
@@ -791,6 +892,11 @@ $('#searchInput').addEventListener('input', ()=>{ clearTimeout(searchTimer); sea
 $('#sortSelect').addEventListener('change', loadPhotos);
 $('#filterSelect').addEventListener('change', loadPhotos);
 $('#formatFilter').addEventListener('change', loadPhotos);
+$('#hideRejectBtn').onclick = ()=>{
+  hideReject = !hideReject;
+  $('#hideRejectBtn').classList.toggle('active', hideReject);
+  loadPhotos();
+};
 
 /* ---- 批量操作 ---- */
 $('#batchPick').onclick = async ()=>{
@@ -858,6 +964,112 @@ $('#batchAlbum').onclick = async ()=>{
   const ids = [...selected];
   await api.post(`/api/albums/${target.id}/add`, { ids });
   toast(`已添加 ${ids.length} 张到「${target.name}」✓`); await loadAlbums();
+};
+
+/* ---- 批量处理（后台任务 + 进度条 + 取消） ---- */
+let batchJobId = null;
+let batchJobTimer = null;
+let batchRunning = false;
+let batchPreset = 'none';
+
+$('#batchProcess').onclick = ()=>{
+  if(!selected.size){ toast('请先选择照片', true); return; }
+  batchRunning = false;
+  batchJobId = null;
+  $('#batchCancel').textContent = '取消';
+  $('#batchModalCount').textContent = selected.size;
+  $('#batchProgress').hidden = true;
+  $('#batchErrors').innerHTML = '';
+  $('#batchStart').hidden = false;
+  $('#batchProgressBar').style.width = '0%';
+  $$('#batchPresets .chip').forEach(c=>c.classList.toggle('active', c.dataset.preset===batchPreset));
+  if(window.UIAnim) window.UIAnim.modal($('#batchModal'), $('.modal-content', $('#batchModal')), true);
+  else $('#batchModal').hidden = false;
+};
+$('#batchPresets').addEventListener('click', e=>{
+  const c = e.target.closest('.chip'); if(!c) return;
+  batchPreset = c.dataset.preset;
+  $$('#batchPresets .chip').forEach(x=>x.classList.toggle('active', x===c));
+});
+$('#batchQuality').addEventListener('input', ()=>{
+  $('#batchVQuality').textContent = $('#batchQuality').value + '%';
+});
+$('#batchStart').onclick = async ()=>{
+  const ids = [...selected];
+  if(!ids.length) return;
+  const preset = PRESETS[batchPreset] || PRESETS.none;
+  const body = {
+    ids,
+    pipeline: {
+      adjust: {
+        brightness: preset.brightness / 100,
+        contrast: preset.contrast / 100,
+        saturation: preset.saturation / 100,
+        hue: preset.hue,
+        grayscale: preset.grayscale,
+      },
+      resizeScale: parseFloat($('#batchScale').value) || 1,
+      output: { format: $('#batchFormat').value, quality: +$('#batchQuality').value },
+    },
+    mode: $('#batchOverwrite').checked ? 'overwrite' : 'copy',
+  };
+  $('#batchStart').hidden = true;
+  $('#batchProgress').hidden = false;
+  $('#batchProgressText').textContent = `0 / ${ids.length}`;
+  batchRunning = true;
+  try{
+    const r = await api.post('/api/photos/batch/process', body);
+    if(!r.ok) throw new Error(r.error || '启动失败');
+    batchJobId = r.jobId;
+    pollBatchJob();
+  }catch(e){
+    batchRunning = false;
+    $('#batchStart').hidden = false;
+    toast('批量处理启动失败:' + e.message, true);
+  }
+};
+function pollBatchJob(){
+  stopBatchPolling();
+  batchJobTimer = setInterval(async ()=>{
+    if(!batchJobId) return;
+    const j = await api.get('/api/jobs/' + batchJobId).catch(()=>null);
+    if(!j) return;
+    $('#batchProgressBar').style.width = (j.total ? (j.done / j.total * 100) : 0) + '%';
+    $('#batchProgressText').textContent =
+      `${j.done} / ${j.total}${j.current ? ' · ' + j.current.name : ''}`;
+    if(j.errors && j.errors.length){
+      $('#batchErrors').innerHTML = j.errors.slice(0, 10)
+        .map(x => `<div class="err">${esc(x.name || x.id)}: ${esc(x.error)}</div>`)
+        .join('');
+    }
+    if(j.status === 'done' || j.status === 'canceled' || j.status === 'error'){
+      stopBatchPolling();
+      batchRunning = false;
+      const failed = (j.errors || []).length;
+      if(j.status === 'done'){
+        toast(`批量处理完成：成功 ${j.done - failed} 张${failed ? '，失败 ' + failed + ' 张' : ''}`, failed > 0);
+        selected.clear();
+        await loadPhotos();
+      } else {
+        toast(j.status === 'canceled' ? '批量处理已取消' : '批量处理出错', true);
+      }
+      $('#batchStart').hidden = true;
+      $('#batchCancel').textContent = '关闭';
+    }
+  }, 500);
+}
+function stopBatchPolling(){
+  if(batchJobTimer){ clearInterval(batchJobTimer); batchJobTimer = null; }
+}
+$('#batchCancel').onclick = async ()=>{
+  if(batchRunning && batchJobId){
+    await api.post('/api/jobs/' + batchJobId + '/cancel', {}).catch(()=>{});
+    stopBatchPolling();
+    batchRunning = false;
+  }
+  batchJobId = null;
+  if(window.UIAnim) window.UIAnim.modal($('#batchModal'), $('.modal-content', $('#batchModal')), false);
+  else $('#batchModal').hidden = true;
 };
 
 /* ============ 评分/标记 ============ */
@@ -985,40 +1197,99 @@ $('#albumDeleteBtn').onclick = async ()=>{
 /* ============ 灯箱:幻灯片按钮 ============ */
 $('#lbSlideshow').onclick = ()=>{ closeLightbox(); openSlideshow(); };
 
-/* ============ 键盘快捷键(选片/评分/标记) ============ */
+/* ============ 键盘快捷键(选片/评分/标记/对比) ============ */
+// 标记/评分后的自动跳转：对比模式进下一组，灯箱模式进下一张（受设置 autoAdvance 控制）
+function afterCullAdvance(){
+  if(cmpActive){ afterCullMark(); return; }
+  if(lightbox.classList.contains('open') && settings.autoAdvance !== false) navLb(1);
+}
+function markTarget(flag){
+  const id = cmpActive
+    ? photos[cmpIdx + cmpSide]?.id
+    : lightbox.classList.contains('open')
+      ? photos[lbIndex]?.id
+      : current ? current.id : null;
+  if(id){ setFlag(id, flag); afterCullAdvance(); }
+}
+function rateTarget(stars){
+  const id = cmpActive
+    ? photos[cmpIdx + cmpSide]?.id
+    : lightbox.classList.contains('open')
+      ? photos[lbIndex]?.id
+      : current ? current.id : null;
+  if(id){ setStars(id, stars); afterCullAdvance(); }
+}
 document.addEventListener('keydown', e=>{
   const tgt = e.target;
   if(tgt && typeof tgt.matches === 'function' && tgt.matches('input,textarea,select')) return;
   const k = e.key;
-  
+  const editorActive = document.querySelector('.view[data-view="editor"].active');
+  const lbOpen = lightbox.classList.contains('open');
+
   // 编辑器撤销/重做
-  if(document.querySelector('.view[data-view="editor"].active')){
-    if(e.ctrlKey || e.metaKey){
-      if(k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
-      if((k === 'y' || (k === 'z' && e.shiftKey))){ e.preventDefault(); redo(); return; }
+  if(editorActive && (e.ctrlKey || e.metaKey)){
+    if(k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
+    if((k === 'y' || (k === 'z' && e.shiftKey))){ e.preventDefault(); redo(); return; }
+  }
+
+  // 对比选片模式（优先级最高）
+  if(cmpActive){
+    if(k==='Escape'){ closeCompare(); return; }
+    if(k==='Tab'){ e.preventDefault(); cmpSide = 1 - cmpSide; updateCompareSide(); return; }
+    if(k==='ArrowLeft' || k==='ArrowRight'){
+      e.preventDefault();
+      cmpIdx = Math.max(0, Math.min(cmpIdx + (k==='ArrowRight' ? 1 : -1), photos.length - 2));
+      updateCompare();
+      return;
     }
+    const id = photos[cmpIdx + cmpSide]?.id;
+    if(k>='1' && k<='5'){ if(id) setStars(id, +k); afterCullMark(); return; }
+    if(k==='0'){ if(id) setStars(id, 0); afterCullMark(); return; }
+    if(k==='p' || k==='P'){ if(id) setFlag(id, 'pick'); afterCullMark(); return; }
+    if(k==='r' || k==='R' || k==='x' || k==='X'){ if(id) setFlag(id, 'reject'); afterCullMark(); return; }
+    if(k==='u' || k==='U'){ if(id) setFlag(id, null); afterCullMark(); return; }
+    return;
   }
-  // 1-5 星评分
-  if(k>='1' && k<='5'){
-    const id = current ? current.id : photos[lbIndex]?.id;
-    if(id) setStars(id, +k);
+
+  // 灯箱：C 进入对比，评分/标记后自动跳转下一张
+  if(lbOpen){
+    if(k==='Escape'){ closeLightbox(); return; }
+    if(k==='c' || k==='C'){ e.preventDefault(); if(photos.length > 1) openCompare(); return; }
+    if(k==='ArrowLeft'){ navLb(-1); return; }
+    if(k==='ArrowRight'){ navLb(1); return; }
+    if(k==='p' || k==='P'){ markTarget('pick'); return; }
+    if(k==='r' || k==='R' || k==='x' || k==='X'){ markTarget('reject'); return; }
+    if(k==='u' || k==='U'){ markTarget(null); return; }
+    if(k>='1' && k<='5'){ rateTarget(+k); return; }
+    if(k==='0'){ rateTarget(0); return; }
+    return;
   }
-  // 0 清除评分
-  if(k==='0'){
-    const id = current ? current.id : photos[lbIndex]?.id;
-    if(id) setStars(id, 0);
+
+  // 编辑器：评分/标记作用于当前照片（不自动跳转）
+  if(editorActive){
+    if(k>='1' && k<='5'){ if(current) setStars(current.id, +k); return; }
+    if(k==='0'){ if(current) setStars(current.id, 0); return; }
+    if(k==='p' || k==='P'){ if(current) setFlag(current.id, 'pick'); return; }
+    if(k==='r' || k==='R' || k==='x' || k==='X'){ if(current) setFlag(current.id, 'reject'); return; }
+    if(k==='u' || k==='U'){ if(current) setFlag(current.id, null); return; }
+    return;
   }
-  // P 精选 / R 排除
-  if(k==='p' || k==='P'){
-    const id = current ? current.id : photos[lbIndex]?.id;
-    if(id) setFlag(id, 'pick');
+
+  // 相册视图：H 隐藏排除，评分/标记作用于灯箱索引（若曾打开）
+  if(k==='h' || k==='H'){
+    hideReject = !hideReject;
+    $('#hideRejectBtn').classList.toggle('active', hideReject);
+    loadPhotos();
+    return;
   }
-  if(k==='r' || k==='R'){
-    const id = current ? current.id : photos[lbIndex]?.id;
-    if(id) setFlag(id, 'reject');
-  }
+  const gridId = lbIndex >= 0 ? photos[lbIndex]?.id : null;
+  if(k>='1' && k<='5'){ if(gridId) setStars(gridId, +k); return; }
+  if(k==='0'){ if(gridId) setStars(gridId, 0); return; }
+  if(k==='p' || k==='P'){ if(gridId) setFlag(gridId, 'pick'); return; }
+  if(k==='r' || k==='R' || k==='x' || k==='X'){ if(gridId) setFlag(gridId, 'reject'); return; }
+  if(k==='u' || k==='U'){ if(gridId) setFlag(gridId, null); return; }
   // 空格:幻灯片(相册视图)
-  if(k===' ' && !$('#slideshow').hidden){ e.preventDefault(); slPlay(); }
+  if(k===' ' && !$('#slideshow').hidden){ e.preventDefault(); slPlay(); return; }
   if(!$('#slideshow').hidden){
     if(k==='ArrowLeft') $('#slPrev').click();
     if(k==='ArrowRight') $('#slNext').click();

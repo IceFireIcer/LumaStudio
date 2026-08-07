@@ -104,6 +104,7 @@
           <option value="webp">WebP</option>
           <option value="gif">GIF</option>
         </select>
+        <button class="tb-toggle" id="hideRejectBtn" title="隐藏排除照片 (H)">👁 隐藏排除</button>
       </div>
       <!-- 批量操作条 -->
       <div class="batch-bar" id="batchBar" hidden>
@@ -116,6 +117,7 @@
         <button class="btn sm ghost" id="batchRate" title="批量评分">评分</button>
         <div class="divider-v"></div>
         <button class="btn sm ghost" id="batchAlbum" title="添加到收藏夹">📁 收藏夹</button>
+        <button class="btn sm ghost" id="batchProcess" title="批量处理：统一应用预设/缩放/格式/质量">⚙ 批量处理</button>
         <button class="btn sm ghost" id="batchZip" title="批量下载ZIP">⬇ ZIP</button>
         <button class="btn sm danger" id="batchDelete" title="批量删除">🗑 删除</button>
       </div>
@@ -131,7 +133,9 @@
       <div class="editor-wrap" id="editorWrap">
         <div class="editor-canvas">
           <div class="canvas-stage" id="canvasStage">
+            <img id="baOrigImg" src="" alt="" hidden>
             <img id="editImg" src="" alt="">
+            <div class="ba-divider" id="baDivider" hidden></div>
             <div class="crop-overlay" id="cropOverlay" hidden>
               <div class="crop-box" id="cropBox">
                 <span class="ch tl"></span><span class="ch tr"></span>
@@ -143,6 +147,7 @@
             <span id="editDims">—</span>
             <span class="dot-sep">·</span>
             <span id="editName">未选择图片</span>
+            <button class="btn ghost sm ba-toggle" id="baToggle" title="对比原图与编辑效果">⇄ 对比原图</button>
           </div>
         </div>
 
@@ -293,6 +298,12 @@
           <input type="number" id="setThumb" min="120" max="1200"></label>
       </div>
       <div class="settings-card">
+        <h3>选片</h3>
+        <label class="switch-row"><span>选片标记后自动跳转下一张（灯箱 / 对比选片）</span>
+          <input type="checkbox" id="setAutoAdvance"><span class="switch"></span></label>
+        <p class="settings-hint">开启后，在灯箱或对比选片中按评分 / 精选 / 排除键，会自动切换到下一张照片。</p>
+      </div>
+      <div class="settings-card">
         <h3>外观</h3>
         <label class="field"><span>主题色</span>
           <input type="color" id="setAccent" value="#0071e3"></label>
@@ -369,7 +380,7 @@
           <span class="about-logo">📷</span>
           <h2>Luma Studio</h2>
           <p class="about-tagline">光影工作室 · 图片查看与编辑</p>
-          <span class="about-ver" id="aboutVer">v1.0.9</span>
+          <span class="about-ver" id="aboutVer">v1.1.0</span>
         </div>
         <div class="about-section">
           <h3>简介</h3>
@@ -466,11 +477,23 @@
     <button class="lb-close" id="lbClose">✕</button>
     <button class="lb-nav prev" id="lbPrev">‹</button>
     <img id="lbImg" src="" alt="">
+    <div class="lb-compare" id="lbCompareWrap" hidden>
+      <figure class="lb-cmp">
+        <img id="lbImgA" src="" alt="">
+        <figcaption id="lbCapA"></figcaption>
+      </figure>
+      <figure class="lb-cmp">
+        <img id="lbImgB" src="" alt="">
+        <figcaption id="lbCapB"></figcaption>
+      </figure>
+      <div class="lb-cmp-hint" id="lbCmpHint"></div>
+    </div>
     <button class="lb-nav next" id="lbNext">›</button>
     <div class="lb-tools">
       <button class="btn ghost sm" id="lbEdit">编辑</button>
       <button class="btn ghost sm" id="lbInfo">信息</button>
       <button class="btn ghost sm" id="lbRename">重命名</button>
+      <button class="btn ghost sm" id="lbCompare" title="并排对比选片 (C)">对比</button>
       <button class="btn ghost sm" id="lbSlideshow">幻灯片</button>
       <button class="btn ghost sm" id="lbDownload">下载</button>
       <span class="lb-cap" id="lbCap"></span>
@@ -514,6 +537,57 @@
     </div>
   </div>
 
+  <!-- 批量处理模态框 -->
+  <div class="modal" id="batchModal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="batchModalTitle">批量处理</h3>
+      </div>
+      <div class="modal-body">
+        <p class="hint">对选中的 <b id="batchModalCount">0</b> 张照片统一应用：</p>
+        <p class="hint">一键预设</p>
+        <div class="presets" id="batchPresets">
+          <button class="chip active" data-preset="none">原图</button>
+          <button class="chip" data-preset="vivid">鲜艳</button>
+          <button class="chip" data-preset="soft">柔和</button>
+          <button class="chip" data-preset="vintage">复古</button>
+          <button class="chip" data-preset="mono">黑白</button>
+          <button class="chip" data-preset="punch">高对比</button>
+        </div>
+        <div class="divider"></div>
+        <label class="field"><span>缩放</span>
+          <select id="batchScale">
+            <option value="1">100%（不缩放）</option>
+            <option value="0.75">75%</option>
+            <option value="0.5">50%</option>
+            <option value="0.25">25%</option>
+          </select></label>
+        <label class="field"><span>输出格式</span>
+          <select id="batchFormat">
+            <option value="keep">保持原格式</option>
+            <option value="jpeg">JPEG（体积小）</option>
+            <option value="png">PNG（无损）</option>
+            <option value="webp">WebP（高效）</option>
+            <option value="avif">AVIF（最小）</option>
+          </select></label>
+        <label class="slider-row"><span>质量</span><i id="batchVQuality">82%</i>
+          <input type="range" id="batchQuality" min="1" max="100" value="82"></label>
+        <label class="switch-row"><span>覆盖原图（不可恢复）</span>
+          <input type="checkbox" id="batchOverwrite"><span class="switch"></span></label>
+        <div class="divider"></div>
+        <div id="batchProgress" hidden>
+          <div class="progress-track"><div class="progress-bar" id="batchProgressBar"></div></div>
+          <p class="hint" id="batchProgressText">0 / 0</p>
+          <div class="batch-errors" id="batchErrors"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="batchCancel">取消</button>
+        <button class="btn primary" id="batchStart">开始处理</button>
+      </div>
+    </div>
+  </div>
+
   <!-- OOBE 首次使用向导 -->
   <div class="modal oobe-modal" id="oobeModal" hidden>
     <div class="modal-content oobe-content">
@@ -535,7 +609,8 @@
         <ul class="oobe-list">
           <li><strong>拖拽上传</strong>：将照片拖入窗口即可自动上传</li>
           <li><strong>多选操作</strong>：点击卡片左上角的勾选框进行批量操作</li>
-          <li><strong>评分标记</strong>：使用 <code>1-5</code> 数字键快速评分，<code>P</code> 精选，<code>R</code> 排除</li>
+          <li><strong>评分标记</strong>：<code>1-5</code> 评分，<code>P</code> 精选，<code>X</code> 排除并自动下一张，<code>U</code> 清除标记</li>
+          <li><strong>批量处理</strong>：多选后一键统一应用预设 / 缩放 / 格式，后台队列带进度</li>
           <li><strong>收藏夹</strong>：创建相册将照片分组管理</li>
         </ul>
       </div>
@@ -554,7 +629,9 @@
         <h2>快捷键速查</h2>
         <ul class="oobe-list">
           <li><code>1-5</code> 评分 1-5 星 / <code>0</code> 清除评分</li>
-          <li><code>P</code> 标记精选 / <code>R</code> 标记排除</li>
+          <li><code>P</code> 精选 / <code>R</code> 排除 / <code>X</code> 排除并跳转 / <code>U</code> 清除标记</li>
+          <li><code>C</code> 灯箱并排对比选片 / <code>Tab</code> 切换标记目标</li>
+          <li><code>H</code> 相册中隐藏排除照片</li>
           <li><code>← →</code> 灯箱中切换照片</li>
           <li><code>空格</code> 幻灯片暂停/继续</li>
           <li><code>Esc</code> 关闭灯箱/幻灯片</li>

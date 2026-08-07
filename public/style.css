@@ -446,3 +446,42 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.18)}
   margin-top:32px;display:flex;justify-content:space-between;align-items:center
 }
 .oobe-nav{display:flex;gap:10px}
+
+/* ===== v1.1.0 选片工作流 ===== */
+/* 工具栏隐藏排除开关 */
+.tb-toggle{padding:9px 14px;border:1px solid var(--line);border-radius:980px;font-size:13px;
+  background:var(--bg-soft);color:var(--text);cursor:pointer;white-space:nowrap;transition:all .2s}
+.tb-toggle:hover{background:var(--bg-soft2)}
+.tb-toggle.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* 编辑器前后对比（原图 / 编辑后，可拖动分界线） */
+.canvas-stage{--ba:50%}
+#baOrigImg{position:absolute;inset:0;margin:auto;z-index:2;
+  clip-path:inset(0 calc(100% - var(--ba)) 0 0)}
+.ba-divider{position:absolute;top:0;bottom:0;left:var(--ba);transform:translateX(-50%);
+  width:2px;background:var(--accent);z-index:3;cursor:ew-resize;touch-action:none}
+.ba-divider::after{content:'⟷';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.canvas-bar .ba-toggle{margin-left:auto}
+.ba-toggle.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* 灯箱并排对比选片 */
+.lightbox.compare #lbImg{display:none}
+.lb-compare{display:flex;gap:18px;align-items:center;max-width:92vw}
+.lb-compare[hidden]{display:none}
+.lb-cmp{position:relative;margin:0;display:flex;flex-direction:column;align-items:center;gap:10px}
+.lb-cmp img{max-width:44vw;max-height:72vh;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.3);
+  background:#fff;object-fit:contain}
+.lb-cmp.target img{outline:3px solid var(--accent);outline-offset:-3px}
+.lb-cmp figcaption{font-size:13px;color:var(--text-soft);max-width:44vw;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.lb-cmp-hint{position:absolute;top:22px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:6px 14px;border-radius:980px;
+  white-space:nowrap;z-index:5}
+
+/* 批量处理进度 */
+.progress-track{height:8px;border-radius:980px;background:var(--bg-soft2);overflow:hidden;margin-bottom:8px}
+.progress-bar{height:100%;width:0;background:var(--accent);border-radius:980px;transition:width .3s}
+.batch-errors{max-height:120px;overflow:auto;margin-top:8px;font-size:12px;color:#d70015}
+.batch-errors .err{padding:2px 0;word-break:break-all}
