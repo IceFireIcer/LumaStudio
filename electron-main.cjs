@@ -12,6 +12,8 @@
 const electron = require('electron');
 const app = electron.app;
 const BrowserWindow = electron.BrowserWindow;
+const ipcMain = electron.ipcMain;
+const shell = electron.shell;
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
@@ -141,6 +143,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(APP_ROOT, 'preload.cjs'),
     },
     autoHideMenuBar: true,
     show: false,
@@ -184,6 +187,12 @@ function startServer() {
     serverInstance.on('error', reject); // 端口占用等错误显式暴露
   });
 }
+
+/* ---------- 打开数据目录（v1.2 §3.7.3） ---------- */
+ipcMain.handle('open-data-dir', async () => {
+  const err = await shell.openPath(DATA_ROOT);
+  return err ? { ok: false, error: err } : { ok: true };
+});
 
 /* ============ 进程级兜底 ============ */
 process.on('uncaughtException', err => {

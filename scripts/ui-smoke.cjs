@@ -15,6 +15,21 @@ const ROOT = path.resolve(__dirname, '..');
 // 若用端口 0（随机），渲染进程的 POST 会被 403 拦截。
 const SMOKE_PORT = 18765;
 
+// 主进程兜底：未捕获异常不再弹原生错误窗，直接打印并退出；
+// 看门狗防止任何一步卡死导致挂起。
+process.on('uncaughtException', err => {
+  console.error('SMOKE-UNCAUGHT ' + (err && err.stack ? err.stack : err));
+  app.exit(1);
+});
+process.on('unhandledRejection', reason => {
+  console.error('SMOKE-REJECTION ' + (reason && reason.stack ? reason.stack : reason));
+});
+const watchdog = setTimeout(() => {
+  console.error('SMOKE-TIMEOUT smoke 未在 90 秒内完成');
+  app.exit(2);
+}, 90000);
+watchdog.unref();
+
 app.whenReady().then(async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'luma-ui-smoke-'));
   const dirs = {
@@ -39,7 +54,7 @@ app.whenReady().then(async () => {
     const port = SMOKE_PORT;
     // 先上传两张测试照片，让页面有可选的当前照片与对比对象
     const jpeg = await sharp({
-      create: { width: 64, height: 64, channels: 3, background: { r: 120, g: 180, b: 90 } },
+      create: { width: 800, height: 600, channels: 3, background: { r: 120, g: 180, b: 90 } },
     }).jpeg().toBuffer();
     const fd = new FormData();
     fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-a.jpg');
@@ -243,6 +258,206 @@ app.whenReady().then(async () => {
           } catch (e) { return 'toggle-h-error:' + e.message; }
         })()`);
         console.log('TOGGLE-H ' + toggleH);
+
+        /* ===== v1.2 验收用例 ===== */
+
+        // 深色模式 / 减弱动效即时生效（无需保存）
+        const darkMode = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.querySelector('.nav-item[data-view="settings"]').click();
+            await new Promise(r => setTimeout(r, 400));
+            const theme = document.getElementById('setTheme');
+            theme.checked = true;
+            theme.dispatchEvent(new Event('change', { bubbles: true }));
+            const dark = document.documentElement.dataset.theme === 'dark';
+            const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+            theme.checked = false;
+            theme.dispatchEvent(new Event('change', { bubbles: true }));
+            const light = document.documentElement.dataset.theme === 'light';
+            const rm = document.getElementById('setReduceMotion');
+            rm.value = 'on';
+            rm.dispatchEvent(new Event('change', { bubbles: true }));
+            const reduced = !!(window.UIAnim && window.UIAnim.reduce);
+            rm.value = 'system';
+            rm.dispatchEvent(new Event('change', { bubbles: true }));
+            return 'dark-ok dark=' + dark + ' light=' + light + ' bg=' + bg +
+              ' reduced=' + reduced;
+          } catch (e) { return 'dark-error:' + e.message; }
+        })()`);
+        console.log('DARK-MODE ' + darkMode);
+
+        // ? 快捷键速查浮层：打开 → 搜索过滤 → Esc 关闭
+        const shortcuts = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            const opened = !document.getElementById('shortcutModal').hidden &&
+              document.getElementById('shortcutList').children.length > 0;
+            const search = document.getElementById('shortcutSearch');
+            search.value = '缩放';
+            search.dispatchEvent(new Event('input', { bubbles: true }));
+            const groups = document.getElementById('shortcutList').children.length;
+            search.value = '';
+            search.dispatchEvent(new Event('input', { bubbles: true }));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise(r => setTimeout(r, 400));
+            return 'shortcut-ok opened=' + opened + ' filteredGroups=' + groups +
+              ' closed=' + document.getElementById('shortcutModal').hidden;
+          } catch (e) { return 'shortcut-error:' + e.message; }
+        })()`);
+        console.log('SHORTCUTS ' + shortcuts);
+
+        // showConfirm 替代原生 confirm：Enter 确认返回 true 并关闭
+        const confirmModal = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const p = window.showConfirm('测试', '确认内容', { danger: true });
+            await new Promise(r => setTimeout(r, 300));
+            const opened = !document.getElementById('confirmModal').hidden &&
+              document.getElementById('confirmOk').classList.contains('danger');
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            const val = await p;
+            await new Promise(r => setTimeout(r, 300));
+            return 'confirm-ok opened=' + opened + ' val=' + val +
+              ' closed=' + document.getElementById('confirmModal').hidden;
+          } catch (e) { return 'confirm-error:' + e.message; }
+        })()`);
+        console.log('CONFIRM ' + confirmModal);
+
+        // 灯箱缩放态：滚轮放大 → ←/→ 平移（不换图）→ 选片键仍生效 → Esc 复位
+        const lbZoom = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.querySelector('.nav-item[data-view="library"]').click();
+            await new Promise(r => setTimeout(r, 600));
+            document.querySelectorAll('#grid .card')[0].querySelector('img').click();
+            await new Promise(r => setTimeout(r, 500));
+            const lb = document.getElementById('lightbox');
+            const zoomEl = document.getElementById('lbZoom');
+            const before = getComputedStyle(zoomEl).transform;
+            // 连续放大 5 次（约 1.76×），使图片超过视口尺寸，平移 clamp 才允许
+            for (let i = 0; i < 5; i++) {
+              lb.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, clientX: 640, clientY: 400, bubbles: true, cancelable: true }));
+            }
+            await new Promise(r => setTimeout(r, 300));
+            const zoomed = !document.getElementById('lbZoomFit').hidden;
+            const zoomedTransform = getComputedStyle(zoomEl).transform;
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+            await new Promise(r => setTimeout(r, 200));
+            const afterPanTransform = getComputedStyle(zoomEl).transform;
+            const panned = afterPanTransform !== zoomedTransform;
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', bubbles: true }));
+            await new Promise(r => setTimeout(r, 500));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            const reset = document.getElementById('lbZoomFit').hidden;
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            return 'lbzoom-ok zoomed=' + zoomed + ' panned=' + panned +
+              ' reset=' + reset + ' transformChanged=' + (before !== zoomedTransform);
+          } catch (e) { return 'lbzoom-error:' + e.message; }
+        })()`);
+        console.log('LB-ZOOM ' + lbZoom);
+
+        // 全局拖放上传遮罩：dragenter 显示 + 计数，dragleave 消失
+        const uploadOverlay = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const dt = new DataTransfer();
+            dt.items.add(new File(['x'], 'overlay.png', { type: 'image/png' }));
+            const ov = document.getElementById('uploadOverlay');
+            window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+            const shown = ov.classList.contains('show');
+            const count = document.getElementById('uoCount').textContent;
+            window.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt, bubbles: true, cancelable: true }));
+            const hidden = !ov.classList.contains('show');
+            return 'overlay-ok shown=' + shown + ' count=' + count + ' hidden=' + hidden;
+          } catch (e) { return 'overlay-error:' + e.message; }
+        })()`);
+        console.log('UPLOAD-OVERLAY ' + uploadOverlay);
+
+        // 回归：在 dropzone 内拖放只上传一次（window drop 冒泡不得重复上传）
+        const dropOnce = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const before = (await fetch('/api/search').then(r=>r.json())).length;
+            const photos = await fetch('/api/search').then(r=>r.json());
+            const blob = await (await fetch('/files/' + photos[0].file + '?v=' + photos[0].time)).blob();
+            const dt = new DataTransfer();
+            dt.items.add(new File([blob], 'drop-once.jpg', { type: 'image/jpeg' }));
+            document.getElementById('dropzone').dispatchEvent(
+              new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+            await new Promise(r => setTimeout(r, 2200));
+            const after = (await fetch('/api/search').then(r=>r.json())).length;
+            return 'droponce-ok before=' + before + ' after=' + after + ' added=' + (after - before);
+          } catch (e) { return 'droponce-error:' + e.message; }
+        })()`);
+        console.log('DROP-ONCE ' + dropOnce);
+
+        // Flip 重绘：搜索触发 renderGrid 后网格卡片数不变
+        const flipGrid = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const before = document.querySelectorAll('#grid .card').length;
+            const inp = document.getElementById('searchInput');
+            inp.value = '';
+            inp.dispatchEvent(new Event('input', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 900));
+            const after = document.querySelectorAll('#grid .card').length;
+            return 'flip-ok before=' + before + ' after=' + after;
+          } catch (e) { return 'flip-error:' + e.message; }
+        })()`);
+        console.log('FLIP-GRID ' + flipGrid);
+
+        // 回归：收藏夹详情页全选后可见卡片出现选中态（renderGrid 只重建库网格的问题）
+        const albumBatch = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const created = await fetch('/api/albums', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: '冒烟相册' }),
+            }).then(r=>r.json());
+            const photoId = document.querySelectorAll('#grid .card')[0].dataset.id;
+            await fetch('/api/albums/' + created.album.id + '/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: [photoId] }),
+            });
+            document.querySelector('.nav-item[data-view="albums"]').click();
+            await new Promise(r => setTimeout(r, 500));
+            document.querySelector('.album-card').click();
+            await new Promise(r => setTimeout(r, 900));
+            const card = document.querySelector('#albumGrid .card');
+            const selBefore = card.classList.contains('selected');
+            document.getElementById('batchSelectAll').click();
+            await new Promise(r => setTimeout(r, 400));
+            // 全选会重建网格，需重新查询卡片节点
+            const selAfter = document.querySelector('#albumGrid .card').classList.contains('selected');
+            document.getElementById('batchClearSel').click();
+            await new Promise(r => setTimeout(r, 300));
+            const selCleared = !document.querySelector('#albumGrid .card').classList.contains('selected');
+            document.getElementById('albumBackBtn').click();
+            await new Promise(r => setTimeout(r, 600));
+            return 'albumbatch-ok selBefore=' + selBefore + ' selAfter=' + selAfter + ' selCleared=' + selCleared;
+          } catch (e) { return 'albumbatch-error:' + e.message; }
+        })()`);
+        console.log('ALBUM-BATCH ' + albumBatch);
+
+        // 草稿：修改滑块 → debounce 保存；导出成功 → 清除
+        const draftFlow = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const card = document.querySelectorAll('#grid .card')[0];
+            const id = card.dataset.id;
+            card.querySelector('.edit').click();
+            await new Promise(r => setTimeout(r, 800));
+            const s = document.getElementById('brightness');
+            s.value = 130;
+            s.dispatchEvent(new Event('input', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 1500));
+            const savedRes = await fetch('/api/photos/' + id + '/draft');
+            const saved = savedRes.status === 200;
+            document.getElementById('exportBtn').click();
+            await new Promise(r => setTimeout(r, 3000));
+            const afterExport = await fetch('/api/photos/' + id + '/draft').then(r => r.status).catch(() => -1);
+            return 'draft-ok saved=' + saved + ' afterExport=' + afterExport;
+          } catch (e) { return 'draft-error:' + e.message; }
+        })()`);
+        console.log('DRAFT ' + draftFlow);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }

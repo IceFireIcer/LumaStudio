@@ -29,7 +29,13 @@ const DEFAULT_SETTINGS = {
   thumbSize: 480,
   accent: '#0071e3',
   autoAdvance: true,
+  theme: 'light',
+  reduceMotion: 'system',
+  slideshowInterval: 3,
 };
+const VALID_THEMES = new Set(['light', 'dark']);
+const VALID_REDUCE_MOTION = new Set(['system', 'on', 'off']);
+const VALID_SLIDESHOW_INTERVALS = new Set([3, 5, 10]);
 const MAX_LOG_SIZE = 10 * 1024 * 1024;
 const MAX_LOG_BACKUPS = 3;
 
@@ -157,6 +163,10 @@ function sanitizeSettings(input = {}) {
     thumbSize: clampInt(src.thumbSize, 120, 1200, DEFAULT_SETTINGS.thumbSize),
     accent: /^#[0-9a-fA-F]{6}$/.test(String(src.accent || '')) ? String(src.accent) : DEFAULT_SETTINGS.accent,
     autoAdvance: src.autoAdvance == null ? DEFAULT_SETTINGS.autoAdvance : toBool(src.autoAdvance),
+    theme: VALID_THEMES.has(String(src.theme)) ? String(src.theme) : DEFAULT_SETTINGS.theme,
+    reduceMotion: VALID_REDUCE_MOTION.has(String(src.reduceMotion)) ? String(src.reduceMotion) : DEFAULT_SETTINGS.reduceMotion,
+    slideshowInterval: VALID_SLIDESHOW_INTERVALS.has(Number(src.slideshowInterval))
+      ? Number(src.slideshowInterval) : DEFAULT_SETTINGS.slideshowInterval,
   };
 }
 
@@ -167,7 +177,7 @@ function sanitizeSettings(input = {}) {
  *  - 处理顺序：自动校正方向 → 裁剪 → 水平翻转 → 垂直翻转 → 旋转 → 调整 → 缩放 → 编码。
  *  - sharp 只允许调用一次 rotate()，因此有 EXIF 方向时需要先烘焙方向再显式旋转。
  */
-async function runPipeline(srcPath, opts = {}, settings = DEFAULT_SETTINGS) {
+async function runPipeline(srcPath, opts = {}, settings = DEFAULT_SETTINGS, onWarn = null) {
   const adjust = opts.adjust || {};
   const transform = opts.transform || {};
   const resize = opts.resize || {};
@@ -226,6 +236,24 @@ async function runPipeline(srcPath, opts = {}, settings = DEFAULT_SETTINGS) {
     const a = clampNum(adjust.contrast, 0, 3, 1);
     if (a !== 1) img = img.linear(a, 128 * (1 - a));
   }
+  // v1.2 新参数：色温（正=暖/琥珀，负=冷/蓝）与色调（正=品红，负=绿）用 recomb 矩阵近似
+  if (adjust.temperature != null || adjust.tint != null) {
+    const t = clampNum(adjust.temperature, -100, 100, 0);
+    const n = clampNum(adjust.tint, -100, 100, 0);
+    if ((t !== 0 || n !== 0) && meta.channels >= 3 && meta.space !== 'cmyk') {
+      const r = 1 + t * 0.0012 + n * 0.001;
+      const g = 1 - n * 0.0012;
+      const b = 1 - t * 0.0012 + n * 0.001;
+      const matrix = [[r, 0, 0], [0, g, 0], [0, 0, b]];
+      if (meta.channels >= 4) {
+        // RGBA：recomb 只接受 3 通道，先拆 alpha，重组后再拼回
+        const alpha = img.extractChannel(3);
+        img = img.removeAlpha().recomb(matrix).joinChannel(alpha);
+      } else {
+        img = img.recomb(matrix);
+      }
+    }
+  }
   if (toBool(adjust.grayscale)) img = img.grayscale();
   if (adjust.blur) {
     const bl = clampNum(adjust.blur, 0, 100, 0);
@@ -250,7 +278,47 @@ async function runPipeline(srcPath, opts = {}, settings = DEFAULT_SETTINGS) {
   else if (fmt === 'webp') img = img.webp({ quality: q });
   else if (fmt === 'avif') img = img.avif({ quality: q });
 
-  const buffer = await img.toBuffer();
+  let buffer = await img.toBuffer();
+
+  // v1.2 新参数：暗角（径向渐变蒙版 multiply）与颗粒（噪声 overlay），
+  // 在最终尺寸上叠加，避免依赖链式 resize 的尺寸推断。
+  const vig = adjust.vignette != null ? clampNum(adjust.vignette, 0, 100, 0) : 0;
+  const grain = adjust.grain != null ? clampNum(adjust.grain, 0, 100, 0) : 0;
+  if (vig > 0 || grain > 0) {
+    try {
+      const m = await sharp(buffer).metadata();
+      const layers = [];
+      if (vig > 0) {
+        const strength = vig / 100;
+        const opacity = (0.5 * strength + 0.12).toFixed(3);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${m.width}" height="${m.height}">` +
+          `<defs><radialGradient id="v" cx="50%" cy="50%" r="72%">` +
+          `<stop offset="42%" stop-color="#000" stop-opacity="0"/>` +
+          `<stop offset="100%" stop-color="#000" stop-opacity="${opacity}"/>` +
+          `</radialGradient></defs><rect width="100%" height="100%" fill="url(#v)"/></svg>`;
+        layers.push({ input: Buffer.from(svg), blend: 'multiply' });
+      }
+      if (grain > 0) {
+        const alpha = ((grain / 100) * 0.28).toFixed(3);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${m.width}" height="${m.height}">` +
+          `<filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/>` +
+          `<feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 ${alpha} 0"/>` +
+          `</filter><rect width="100%" height="100%" filter="url(#n)"/></svg>`;
+        layers.push({ input: Buffer.from(svg), blend: 'overlay' });
+      }
+      let out = sharp(buffer).composite(layers);
+      if (fmt === 'jpeg' || fmt === 'jpg') out = out.toFormat('jpeg', { quality: q, mozjpeg: true });
+      else if (fmt === 'png') out = out.toFormat('png', { compressionLevel: 9 });
+      else if (fmt === 'webp') out = out.toFormat('webp', { quality: q });
+      else if (fmt === 'avif') out = out.toFormat('avif', { quality: q });
+      buffer = await out.toBuffer();
+    } catch (e) {
+      // 叠加失败（如单通道灰度图）时回退未叠加结果，不阻断处理
+      const warn = onWarn || console.warn.bind(console);
+      warn(`[Luma] 暗角/颗粒叠加失败，已回退原图: ${e && e.message}`);
+    }
+  }
+
   return { buffer, ext: FMT_EXT[fmt] || 'jpeg' };
 }
 
@@ -592,16 +660,20 @@ function extractExifTiff(buf, ext) {
 }
 
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isElectron = false }) {
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isElectron = false }) {
   sharp.cache(false);
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const { logger, LOG_FILE, LOG_DIR } = createLogger(logDir);
 
   const DB_FILE = path.join(dirs.data, 'db.json');
   const SETTINGS_FILE = path.join(dirs.data, 'settings.json');
+  const DRAFTS_FILE = path.join(dirs.data, 'drafts.json');
+  const DRAFT_MAX_BYTES = 8 * 1024;   // 单条草稿 ≤ 8KB
+  const DRAFT_MAX_COUNT = 1000;       // 草稿总数 ≤ 1000，超限清 updatedAt 最旧
 
   let db = loadJSON(DB_FILE, { photos: [], albums: [] });
   if (!db.albums) db.albums = [];
+  let drafts = loadJSON(DRAFTS_FILE, {});
   let nameMigrated = false;
   for (const p of db.photos) {
     if (p.stars == null) p.stars = 0;
@@ -614,8 +686,12 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
   }
   let settings = sanitizeSettings(loadJSON(SETTINGS_FILE, DEFAULT_SETTINGS));
   const persistDB = () => saveJSONAtomic(DB_FILE, db);
+  const persistDrafts = () => saveJSONAtomic(DRAFTS_FILE, drafts);
   if (nameMigrated) persistDB();
   const persistSettings = () => saveJSONAtomic(SETTINGS_FILE, settings);
+  // 管线运行包装：暗角/颗粒叠加失败等告警进后端日志页，便于排查
+  const runPipelineLogged = (src, opts, stt) =>
+    runPipeline(src, opts, stt, msg => logger.warn('backend', msg));
 
   const DIRS = dirs;
   const app = express();
@@ -909,7 +985,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
     if (!p) return res.status(404).json({ error: '未找到' });
     const full = path.join(DIRS.uploads, p.file);
     const mode = (req.body && req.body.mode === 'overwrite') ? 'overwrite' : 'copy';
-    const { buffer, ext } = await runPipeline(full, req.body, settings);
+    const { buffer, ext } = await runPipelineLogged(full, req.body, settings);
     if (mode === 'overwrite') {
       const newName = p.id + '.' + ext;
       const newPath = path.join(DIRS.uploads, newName);
@@ -936,7 +1012,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
   app.post('/api/photos/:id/render', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
-    const { buffer, ext } = await runPipeline(path.join(DIRS.uploads, p.file), req.body, settings);
+    const { buffer, ext } = await runPipelineLogged(path.join(DIRS.uploads, p.file), req.body, settings);
     const mime = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', avif: 'image/avif' }[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', mime);
     res.send(buffer);
@@ -945,7 +1021,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
   app.post('/api/photos/:id/preview', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
-    const { buffer } = await runPipeline(path.join(DIRS.uploads, p.file), req.body, settings);
+    const { buffer } = await runPipelineLogged(path.join(DIRS.uploads, p.file), req.body, settings);
     res.json({ ok: true, estimatedSize: buffer.length });
   }));
 
@@ -960,6 +1036,39 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
     res.json({ ok: true, photo: p });
   });
 
+  /* ---------- 编辑草稿（v1.2 §3.4.3：单快照草稿，非版本链） ---------- */
+  app.get('/api/photos/:id/draft', (req, res) => {
+    const d = drafts[req.params.id];
+    if (!d) return res.status(404).json({ error: '无草稿' });
+    res.json({ ok: true, draft: d });
+  });
+  app.put('/api/photos/:id/draft', (req, res) => {
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const draft = {
+      adjust: body.adjust && typeof body.adjust === 'object' ? body.adjust : {},
+      transform: body.transform && typeof body.transform === 'object' ? body.transform : {},
+      resize: body.resize && typeof body.resize === 'object' ? body.resize : {},
+      output: body.output && typeof body.output === 'object' ? body.output : {},
+      updatedAt: Date.now(),
+    };
+    if (Buffer.byteLength(JSON.stringify(draft), 'utf8') > DRAFT_MAX_BYTES) {
+      return res.status(400).json({ error: '草稿超过 8KB 上限' });
+    }
+    drafts[req.params.id] = draft;
+    const keys = Object.keys(drafts);
+    if (keys.length > DRAFT_MAX_COUNT) {
+      const sorted = keys.sort((a, b) => (drafts[a].updatedAt || 0) - (drafts[b].updatedAt || 0));
+      for (const k of sorted.slice(0, keys.length - DRAFT_MAX_COUNT)) delete drafts[k];
+    }
+    persistDrafts();
+    res.json({ ok: true, draft });
+  });
+  app.delete('/api/photos/:id/draft', (req, res) => {
+    delete drafts[req.params.id];
+    persistDrafts();
+    res.json({ ok: true });
+  });
+
   /* ---------- 设置（校验） ---------- */
   app.get('/api/settings', (req, res) => res.json(settings));
   app.post('/api/settings', (req, res) => {
@@ -972,7 +1081,12 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
   app.get('/api/stats', (req, res) => {
     let total = 0;
     for (const p of db.photos) total += p.size || 0;
-    res.json({ count: db.photos.length, totalSize: total, thumbSize: settings.thumbSize });
+    res.json({
+      count: db.photos.length,
+      totalSize: total,
+      thumbSize: settings.thumbSize,
+      dataDir: dirs.data || null,
+    });
   });
 
   /* ---------- 评分 / 标记 ---------- */
@@ -995,10 +1109,10 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
 
   /* ---------- 相册 ---------- */
   app.get('/api/albums', (req, res) => {
-    res.json(db.albums.map(a => ({
-      ...a,
-      count: (a.photoIds || []).filter(id => db.photos.some(p => p.id === id)).length,
-    })));
+    res.json(db.albums.map(a => {
+      const ids = (a.photoIds || []).filter(id => db.photos.some(p => p.id === id));
+      return { ...a, count: ids.length, cover: ids.length ? ids[0] : null };
+    }));
   });
   app.post('/api/albums', (req, res) => {
     const name = String((req.body && req.body.name) || '').trim();
@@ -1099,7 +1213,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isE
           delete opts.resizeScale;
 
           const full = path.join(DIRS.uploads, p.file);
-          const { buffer, ext } = await runPipeline(full, opts, settings);
+          const { buffer, ext } = await runPipelineLogged(full, opts, settings);
           if (mode === 'overwrite') {
             const newName = p.id + '.' + ext;
             const newPath = path.join(DIRS.uploads, newName);

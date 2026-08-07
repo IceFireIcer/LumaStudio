@@ -71,6 +71,7 @@
         <p class="dz-hint">JPG / PNG / WebP / AVIF / GIF · 自动生成缩略图</p>
         <div class="upload-progress" id="uploadProgress"><div class="bar"></div></div>
       </div>
+      <div class="upload-status" id="uploadStatus" hidden></div>
 
       <!-- 工具栏:搜索/排序/筛选/批量 -->
       <div class="toolbar" id="toolbar">
@@ -105,9 +106,11 @@
           <option value="gif">GIF</option>
         </select>
         <button class="tb-toggle" id="hideRejectBtn" title="隐藏排除照片 (H)">👁 隐藏排除</button>
+        <span class="lib-count" id="libCount" hidden></span>
       </div>
       <!-- 批量操作条 -->
       <div class="batch-bar" id="batchBar" hidden>
+        <div class="batch-thumbs" id="batchThumbs"></div>
         <span id="selCount">0 张已选</span>
         <button class="btn sm ghost" id="batchSelectAll">全选</button>
         <button class="btn sm ghost" id="batchClearSel">取消</button>
@@ -133,20 +136,34 @@
       <div class="editor-wrap" id="editorWrap">
         <div class="editor-canvas">
           <div class="canvas-stage" id="canvasStage">
-            <img id="baOrigImg" src="" alt="" hidden>
-            <img id="editImg" src="" alt="">
-            <div class="ba-divider" id="baDivider" hidden></div>
-            <div class="crop-overlay" id="cropOverlay" hidden>
-              <div class="crop-box" id="cropBox">
-                <span class="ch tl"></span><span class="ch tr"></span>
-                <span class="ch bl"></span><span class="ch br"></span>
+            <div class="canvas-zoom" id="canvasZoom">
+              <img id="baOrigImg" src="" alt="" hidden>
+              <img id="editImg" src="" alt="">
+              <div class="ba-divider" id="baDivider" hidden></div>
+              <div class="crop-overlay" id="cropOverlay" hidden>
+                <div class="crop-box" id="cropBox">
+                  <span class="ch tl"></span><span class="ch tr"></span>
+                  <span class="ch bl"></span><span class="ch br"></span>
+                  <i class="cl v1"></i><i class="cl v2"></i><i class="cl h1"></i><i class="cl h2"></i>
+                </div>
               </div>
+              <div class="edit-overlay" id="editVignette"></div>
+              <svg class="edit-overlay" id="editGrain" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+                <filter id="grainFilter"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/></filter>
+                <rect width="100%" height="100%" filter="url(#grainFilter)"/>
+              </svg>
             </div>
           </div>
           <div class="canvas-bar">
             <span id="editDims">—</span>
             <span class="dot-sep">·</span>
             <span id="editName">未选择图片</span>
+            <button class="btn ghost sm" id="canvasZoomOut" title="缩小画布">−</button>
+            <span id="canvasZoomPct" class="tabular-nums">100%</span>
+            <button class="btn ghost sm" id="canvasZoomIn" title="放大画布">＋</button>
+            <button class="btn ghost sm" id="canvasZoomFit" title="适应窗口" hidden>适应</button>
+            <span class="dot-sep">·</span>
+            <button class="btn ghost sm ba-toggle" id="baDirToggle" title="切换分屏方向" hidden>⇆ 左右</button>
             <button class="btn ghost sm ba-toggle" id="baToggle" title="对比原图与编辑效果">⇄ 对比原图</button>
           </div>
         </div>
@@ -171,6 +188,10 @@
               <button class="chip" data-preset="punch">高对比</button>
             </div>
             <div class="divider"></div>
+            <div class="edit-undo-row">
+              <button class="btn ghost" id="undoBtn" disabled>↶ 撤销</button>
+              <button class="btn ghost" id="redoBtn" disabled>↷ 重做</button>
+            </div>
             <label class="slider-row"><span>亮度</span><i id="vBrightness">100%</i>
               <input type="range" id="brightness" min="0" max="200" value="100"></label>
             <label class="slider-row"><span>对比度</span><i id="vContrast">100%</i>
@@ -183,6 +204,15 @@
               <input type="range" id="sharpen" min="0" max="10" step="0.5" value="0"></label>
             <label class="slider-row"><span>模糊</span><i id="vBlur">0</i>
               <input type="range" id="blur" min="0" max="20" step="0.5" value="0"></label>
+            <div class="divider"></div>
+            <label class="slider-row"><span>色温</span><i id="vTemperature">0</i>
+              <input type="range" id="temperature" min="-100" max="100" value="0"></label>
+            <label class="slider-row"><span>色调</span><i id="vTint">0</i>
+              <input type="range" id="tint" min="-100" max="100" value="0"></label>
+            <label class="slider-row"><span>暗角</span><i id="vVignette">0</i>
+              <input type="range" id="vignette" min="0" max="100" value="0"></label>
+            <label class="slider-row"><span>颗粒</span><i id="vGrain">0</i>
+              <input type="range" id="grain" min="0" max="100" value="0"></label>
             <label class="switch-row"><span>黑白</span>
               <input type="checkbox" id="grayscale"><span class="switch"></span></label>
             <button class="btn ghost full" id="resetAdjust">重置全部</button>
@@ -308,11 +338,24 @@
         <label class="field"><span>主题色</span>
           <input type="color" id="setAccent" value="#0071e3"></label>
         <div class="swatches" id="swatches"></div>
+        <div class="divider"></div>
+        <label class="switch-row"><span>深色模式</span>
+          <input type="checkbox" id="setTheme"><span class="switch"></span></label>
+        <div class="theme-row"><span>减弱动效</span>
+          <select id="setReduceMotion">
+            <option value="system">跟随系统</option>
+            <option value="on">开启（减少动效）</option>
+            <option value="off">关闭（正常动效）</option>
+          </select></div>
+        <button class="btn ghost" id="openShortcuts">⌨ 快捷键速查</button>
       </div>
       <div class="settings-card">
         <h3>存储</h3>
         <div class="stat-row"><span>照片数量</span><b id="stCount">—</b></div>
         <div class="stat-row"><span>占用空间</span><b id="stSize">—</b></div>
+        <div class="stat-row"><span>数据目录</span><b id="stDir">—</b></div>
+        <button class="btn ghost" id="openDataDirBtn" disabled>打开数据目录</button>
+        <div class="divider"></div>
         <button class="btn danger" id="clearStorage">清空全部照片</button>
       </div>
       <div class="settings-card">
@@ -356,12 +399,14 @@
         <div class="empty" id="albumEmpty" style="display: none;">
           <div class="empty-ico">📁</div>
           <p>这个收藏夹还没有照片，去相册里选几张吧</p>
+          <button class="btn primary" data-goto="library">去相册选照片</button>
         </div>
       </div>
     </section>
 
     <!-- ===== 幻灯片 ===== -->
     <div class="slideshow" id="slideshow" hidden>
+      <div class="sl-progress" id="slProgress"></div>
       <div class="sl-img-wrap"><img id="slImg" src="" alt=""></div>
       <div class="sl-info" id="slInfo"></div>
       <div class="sl-controls">
@@ -380,7 +425,7 @@
           <span class="about-logo">📷</span>
           <h2>Luma Studio</h2>
           <p class="about-tagline">光影工作室 · 图片查看与编辑</p>
-          <span class="about-ver" id="aboutVer">v1.1.0</span>
+          <span class="about-ver" id="aboutVer">v1.2.0</span>
         </div>
         <div class="about-section">
           <h3>简介</h3>
@@ -426,6 +471,8 @@
         <div class="topbar-actions">
           <button class="btn ghost" id="logsClearBtn">清空日志</button>
           <button class="btn ghost" id="logsRefreshBtn">刷新</button>
+          <input type="text" id="logsSearch" class="tb-search-log" placeholder="搜索消息或详情…" autocomplete="off">
+          <button class="tb-toggle" id="logsPauseBtn">⏸ 暂停</button>
           <select id="logsLevelFilter" class="tb-select">
             <option value="">全部级别</option>
             <option value="info">INFO</option>
@@ -476,7 +523,11 @@
   <div class="lightbox" id="lightbox">
     <button class="lb-close" id="lbClose">✕</button>
     <button class="lb-nav prev" id="lbPrev">‹</button>
-    <img id="lbImg" src="" alt="">
+    <span class="lb-index" id="lbIndex">1 / 1</span>
+    <div class="lb-exif" id="lbExif" title="查看详细信息" hidden></div>
+    <div class="lb-zoom" id="lbZoom">
+      <img id="lbImg" src="" alt="">
+    </div>
     <div class="lb-compare" id="lbCompareWrap" hidden>
       <figure class="lb-cmp">
         <img id="lbImgA" src="" alt="">
@@ -490,6 +541,7 @@
     </div>
     <button class="lb-nav next" id="lbNext">›</button>
     <div class="lb-tools">
+      <button class="btn ghost sm" id="lbZoomFit" title="适应窗口 (Esc 复位)" hidden>⤢ 适应窗口</button>
       <button class="btn ghost sm" id="lbEdit">编辑</button>
       <button class="btn ghost sm" id="lbInfo">信息</button>
       <button class="btn ghost sm" id="lbRename">重命名</button>
@@ -498,11 +550,20 @@
       <button class="btn ghost sm" id="lbDownload">下载</button>
       <span class="lb-cap" id="lbCap"></span>
     </div>
+    <div class="lb-filmstrip" id="lbFilmstrip" hidden></div>
   </div>
 
   <input type="file" id="fileInput" accept="image/*" multiple hidden>
   <div class="toast" id="toast"></div>
   <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+  <!-- 全局拖放上传遮罩 -->
+  <div class="upload-overlay" id="uploadOverlay">
+    <div class="uo-inner">
+      <div class="uo-ico">📷</div>
+      <div class="uo-count" id="uoCount">松开即可上传</div>
+      <div class="uo-hint">拖入图片文件 · Esc 取消</div>
+    </div>
+  </div>
 
   <!-- 通用输入模态框 -->
   <div class="modal" id="inputModal" hidden>
@@ -533,6 +594,38 @@
       </div>
       <div class="modal-footer">
         <button class="btn ghost" id="selectModalCancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用确认模态框（v1.2 §2.1，替代原生 confirm） -->
+  <div class="modal" id="confirmModal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="confirmTitle">确认</h3>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMsg" style="font-size:14px;line-height:1.7;color:var(--text)"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="confirmCancel">取消</button>
+        <button class="btn primary" id="confirmOk">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 快捷键速查浮层（v1.2 §2.5） -->
+  <div class="modal shortcut-modal" id="shortcutModal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>快捷键速查</h3>
+      </div>
+      <div class="modal-body">
+        <input type="text" class="shortcut-search" id="shortcutSearch" placeholder="搜索按键或说明…" autocomplete="off">
+        <div class="shortcut-list" id="shortcutList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="shortcutClose">关闭</button>
       </div>
     </div>
   </div>
@@ -608,6 +701,7 @@
         <h2>上传与管理照片</h2>
         <ul class="oobe-list">
           <li><strong>拖拽上传</strong>：将照片拖入窗口即可自动上传</li>
+          <li><strong>任意位置</strong>：窗口任意位置拖放照片即可上传</li>
           <li><strong>多选操作</strong>：点击卡片左上角的勾选框进行批量操作</li>
           <li><strong>评分标记</strong>：<code>1-5</code> 评分，<code>P</code> 精选，<code>X</code> 排除并自动下一张，<code>U</code> 清除标记</li>
           <li><strong>批量处理</strong>：多选后一键统一应用预设 / 缩放 / 格式，后台队列带进度</li>
@@ -632,7 +726,10 @@
           <li><code>P</code> 精选 / <code>R</code> 排除 / <code>X</code> 排除并跳转 / <code>U</code> 清除标记</li>
           <li><code>C</code> 灯箱并排对比选片 / <code>Tab</code> 切换标记目标</li>
           <li><code>H</code> 相册中隐藏排除照片</li>
+          <li><code>?</code> 打开快捷键速查浮层</li>
           <li><code>← →</code> 灯箱中切换照片</li>
+          <li><code>滚轮</code> 灯箱/画布缩放，<code>双击</code> 复位</li>
+          <li><code>方向键</code> 裁剪框微调</li>
           <li><code>空格</code> 幻灯片暂停/继续</li>
           <li><code>Esc</code> 关闭灯箱/幻灯片</li>
         </ul>
@@ -649,6 +746,7 @@
   </div>
 
   <script src="/vendor/gsap/gsap.min.js"></script>
+  <script src="/vendor/gsap/FlipPlugin.min.js"></script>
   <script src="/ui-anim.js"></script>
   <script src="/app.js"></script>
 </body>

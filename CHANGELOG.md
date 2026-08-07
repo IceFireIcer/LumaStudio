@@ -1,5 +1,44 @@
 # Changelog
 
+## v1.2.0
+
+### 中文
+- 新增**深色模式**：浅色 / 深色手动切换，深浅共用主题色，中性色变量自动适配（含原生控件 `color-scheme`）
+- 统一**设计系统**：颜色 / 间距 / 圆角 / 阴影 / 字体 / 动效全量 token 化，定制滚动条与键盘焦点样式；减弱动效升级为三态（跟随系统 / 开启 / 关闭）
+- 新增全局组件：自定义确认模态框（替换原生 `confirm`）、Toast 动作按钮、`?` 快捷键速查浮层、窗口任意位置拖放上传遮罩、页面方向过渡动画
+- 相册页增强：上传进度明细、网格 Flip 过渡、卡片悬停快速评分、批量条缩略图与计数、空状态 CTA
+- 灯箱增强：`3 / 25` 计数、底部胶片条、EXIF 摘要条、滚轮缩放平移（1×–5×）、方向化切换动画；缩放态下方向键改为平移
+- 幻灯片增强：Ken Burns 慢推、播放间隔设置（3 / 5 / 10 秒）、顶部进度条、计数
+- 编辑器增强：色温 / 色调 / 暗角 / 颗粒四个新参数、滑块双击复位与改动标记、撤销/重做按钮、画布缩放平移、裁剪框三分线网格与方向键微调、前后对比任意拖动与左右/上下分屏、**编辑草稿持久化**（自动保存 / 恢复 / 导出后清除）
+- EXIF 页增强：相机 / 拍摄参数 / 时间 / 文件 / GPS 分组展示、值一键复制、GPS 高德与 Google 地图链接
+- 收藏夹增强：卡片首图封面、详情页完整批量条、相册页拖拽照片加入收藏夹
+- 设置页新增外观卡：深色模式、减弱动效三态、快捷键速查入口；存储卡新增数据目录显示与「打开数据目录」按钮
+- 日志页增强：搜索、暂停实时刷新、行展开与复制
+- OOBE 更新：拖放上传引导、快捷键表同步、步骤方向动画、深色适配
+
+### English
+- Added **dark mode**: manual light/dark toggle sharing the accent color, with neutral colors adapted automatically (including native control `color-scheme`)
+- Unified **design system**: colors / spacing / radius / shadows / typography / motion fully tokenized, custom scrollbars and keyboard focus styles; reduced-motion is now a tri-state (system / on / off)
+- Added global components: custom confirm modal (replacing native `confirm`), toast action buttons, `?` shortcut cheatsheet, window-wide drag-and-drop upload overlay, directional page transitions
+- Gallery: upload progress details, grid Flip transitions, hover quick rating, batch-bar thumbnails and count, empty-state CTAs
+- Lightbox: `3 / 25` counter, bottom filmstrip, EXIF summary bar, wheel zoom/pan (1×–5×), directional navigation; arrow keys pan while zoomed
+- Slideshow: Ken Burns pan, configurable interval (3 / 5 / 10 s), top progress bar, counter
+- Editor: four new parameters (temperature / tint / vignette / grain), double-click slider reset and modification dots, Undo/Redo buttons, canvas zoom/pan, rule-of-thirds crop grid with arrow-key nudging, before/after drag-anywhere with left-right/top-bottom split, and **edit draft persistence** (auto-save / restore / clear after export)
+- EXIF page: grouped camera / capture / time / file / GPS sections, one-click value copy, Amap and Google Maps links for GPS
+- Albums: first-photo card covers, full batch bar in album detail, drag photos into the sidebar album
+- Settings: new Appearance card (dark mode, reduced-motion tri-state, shortcut cheatsheet entry); storage card shows the data directory with an "Open Data Directory" button
+- Logs: search, pause live refresh, row expand & copy
+- OOBE: drag-and-drop guidance, synced shortcut table, step direction animations, dark-mode support
+
+### Notes
+- This is the v1.2 UI/UX redesign batch (design spec `docs/ui-redesign.md`); ROADMAP features (timeline, tags, version chains, recycle bin, more EXIF editing) remain out of scope and are planned separately.
+
+### Release Assets
+- `Luma Studio Setup 1.2.0.exe` — Windows 安装版（推荐大多数用户）
+- `Luma Studio 1.2.0.exe` — Windows 便携版（免安装，数据跟随 exe）
+
+---
+
 ## v1.1.0
 
 ### 中文

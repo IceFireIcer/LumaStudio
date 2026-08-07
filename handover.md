@@ -8,8 +8,8 @@
 - **项目**：Luma Studio · 光影工作室 —— 自托管桌面版图片查看器与 Lightroom 风格编辑器
 - **形态**：Electron 桌面应用（Node.js + Express 后端，sharp/libvips 图像管线，原生 HTML/CSS/JS 前端，零构建步骤）
 - **仓库**：https://github.com/IceFireIcer/LumaStudio ，单一分支 `main`（git 仓库根 = 本目录）
-- **当前版本**：v1.1.0（2026-08-07 发布），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
-- **最近版本发布提交**：`0afffc9` release: 发布 v1.1.0（选片工作流增强）；其后为文档维护提交，最新 HEAD 以 `git log` 为准
+- **当前版本**：v1.2.0（UI/UX 改版批次，实现已完成并通过 `npm test` 与 UI 冒烟；待评审/发版），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
+- **最近版本发布提交**：`0afffc9` release: 发布 v1.1.0（选片工作流增强）；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
 - **README 政策（v1.1.0 起）**：仅保留中文主文档 `README.md` 与英文版 `README_en.md`，de/es/fr/ja/ko 变体已移除，勿再新增
 
 ## 2. 代码结构（仓库根）
@@ -18,14 +18,29 @@
 |---|---|
 | `server-app.cjs` | 唯一事实来源：Express 应用、图像处理管线、日志、EXIF 读写、PNG/WebP chunk 写入、相册/批量/后台任务/ZIP/搜索等全部 REST API |
 | `electron-main.cjs` | Electron 主进程：数据目录解析（便携版/安装版）、单实例锁、OOBE 注册表、启动服务器与窗口 |
+| `preload.cjs` | Electron preload：`contextBridge` 暴露 `window.luma.openDataDir()`（打开数据目录，v1.2 新增） |
 | `electron-launch.cjs` | 启动器（spawn Electron，清理 `ELECTRON_RUN_AS_NODE` 污染） |
-| `public/` | 前端：`index.html` / `style.css` / `app.js` / `ui-anim.js`（GSAP 动画层）/ `vendor/gsap/` |
+| `public/` | 前端：`index.html` / `style.css` / `app.js` / `ui-anim.js`（GSAP 动画层）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
 | `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互，捕获渲染进程错误 |
 | `test/server.test.cjs` | node:test 回归测试（当前 25 个，全部通过） |
 | `build/installer/` | Inno Setup 安装脚本（仓库源文件，勿删） |
 | `ROADMAP.md` / `CHANGELOG.md` / `README.md` / `README_en.md` / `AGENTS.md` / `handover.md` | 规划 / 版本日志 / 文档 / 仓库规范 / 本交接文档 |
 
 ## 3. 已实现功能（v1.1.0 现状）
+
+### v1.2 UI/UX 改版（2026-08-07，规格：docs/ui-redesign.md）
+- **设计系统**：颜色/间距/圆角/阴影/动效全量 token 化；深色模式 `html[data-theme="dark"]`（settings.theme，手动二态）；预置 6 色板暗色变体写死 CSS，非预置色用 `color-mix` 兜底；定制滚动条与 `:focus-visible`
+- **全局组件**：`showConfirm` 替代全部原生 `confirm()`；toast 动作按钮（`toast(msg, opts)`）；`?` 快捷键速查浮层（`SHORTCUTS` 常量表驱动）；窗口任意位置拖放上传遮罩；`UIAnim.switchView` 方向化页面过渡；`UIAnim.navCrossfade` 方向化灯箱导航
+- **相册**：dropzone 紧凑条、上传进度明细（逐张 + 成功/失败汇总）、网格 Flip（`FlipPlugin.min.js` + `Flip.getState`/`Flip.from`，重建 DOM 需传 `targets: cards`）、hover 快捷评分、批量条缩略图 + `#libCount` 计数、空状态 CTA
+- **灯箱**：`#lbIndex` 计数药丸、`#lbFilmstrip` 胶片条、`#lbExif` EXIF 摘要（`lbExifCache` 内存缓存）、滚轮缩放平移 1×–5×（transform 挂 `.lb-zoom`，缩放态 `←/→` 平移、选片键仍生效、与对比互斥）
+- **幻灯片**：Ken Burns 慢推（奇偶张交替缩放）、`settings.slideshowInterval`（3/5/10s）、`#slProgress` 顶部进度条
+- **编辑器**：色温/色调/暗角/颗粒新参数（服务端 sharp 近似：temperature/tint 用 recomb 矩阵、vignette/grain 用最终尺寸叠加）、滑块双击复位 + 改动标记、撤销/重做按钮、画布缩放平移（`.canvas-zoom` 统一挂 transform）、裁剪框三分线 + 方向键微调 + 贴边吸附、前后对比任意拖动 + 左右/上下分屏（`--ba-dir`）、**草稿持久化**（`/api/photos/:id/draft`，debounce 800ms，导出成功后 DELETE）
+- **EXIF**：相机/拍摄参数/时间/文件/GPS 分组展示、值一键复制（GPS 附"打开地图"动作）、GPS 高德/Google 链接
+- **收藏夹**：卡片首图封面（`cover` 字段）、详情页完整批量条（`createCard` 复用 + `refreshAfterBatch` 留在当前收藏夹刷新）、卡片拖拽到侧边栏"收藏夹"加入、详情页窗口拖放自动上传并加入
+- **设置**：外观卡（深色模式、减弱动效三态 `system|on|off`、快捷键速查按钮）、存储卡显示 `dataDir` + 打开数据目录（preload）
+- **日志**：搜索框、暂停实时刷新、行展开与复制；**OOBE**：步骤方向动画、拖放引导、快捷键表同步、深色适配
+
+### v1.1.0 现状（基础能力，v1.2 保持）
 
 - **相册**：上传（拖拽/点击，JPG/PNG/WebP/AVIF/GIF/TIFF/BMP）、WebP 缩略图、**瀑布流布局**（GSAP 驱动，DOM 顺序=视觉顺序）、搜索/排序/筛选、灯箱、幻灯片
 - **编辑器**：6 种预设、亮度/对比度/饱和度/色相/锐化/模糊/黑白、撤销重做（Ctrl+Z/Y）、旋转/翻转/交互式裁剪、像素与百分比缩放、JPEG/PNG/WebP/AVIF 导出（另存副本/覆盖原图/下载）、**前后对比视图**（原图/编辑后分屏，可拖动分界线）
@@ -73,10 +88,20 @@
 - 侧边栏导航：`nav-item` 点击对信息/编辑器视图会先 `openExif/openEditor(current)` 填充内容（曾只 `switchView` 导致预览空白）
 - 冒烟测试注意：窗口必须 `show: true`（隐藏窗口 rAF 被节流，GSAP `onComplete` 不触发）；服务器须用**固定端口**（CSRF 白名单按端口生成，端口 0 会导致渲染进程 POST 全被 403）；需注册 OOBE 路由桩（OOBE 路由只在 electron-main.cjs 中注册）
 
+### 4.5 前端（v1.2 更新，接手必读）
+- **网格 Flip**：`renderGrid()` 是整体重建 DOM，`Flip.from(state)` 必须传 `targets: cards`（新元素集合），否则 Flip 补间的是已脱离文档的旧节点
+- **灯箱换源**：`showLbPhoto(0)`（首次打开/胶片条跳转）**同步**设置 `img.src`，不要用 crossfade 异步换源——紧随其后的 `UIAnim.lightbox` 开合动画对同一 img 用 `overwrite:'auto'`，会把 crossfade tween 杀掉导致 src 永不赋值（图片空白）
+- **GSAP 警告**：`gsap.quickTo(el,'scale')` 创建后立即调用 setter 会触发 "scale not eligible for reset" 一次性警告；画布/灯箱缩放改用 `gsap.to + overwrite:'auto'`（scale 0.2-0.25s、平移 0.08-0.12s），语义等价且零警告
+- **缩放 clamp**：`clampLbPan/clampCanvasPan` 基于 `getBoundingClientRect()`（天然含 transform）；图片小于视口时 max=0（禁止平移是正确行为，冒烟测试需先把图放大到超过视口再验证平移）
+- **草稿**：`openEditor` 会先 `clearTimeout(draftTimer)` 避免上一张照片的待保存草稿写入新照片；导出成功（copy/overwrite）后 `DELETE /api/photos/:id/draft`
+- **设置驱动动效**：`UIAnim.setReduceMode('system'|'on'|'off')` 由 `settings.reduceMotion` 驱动，不再是模块加载时一次性读取 matchMedia
+- **全局拖放上传**：window `drop` handler 必须跳过 `e.target.closest('#dropzone')` 的事件——dropzone 自己的 drop 会冒泡到 window，否则同一批文件上传两次（冒烟 `DROP-ONCE` 回归锁定）
+- **收藏夹详情页刷新**：`renderGrid()` 只重建库视图 `#grid`；详情页内的批量全选/取消、缩略图取消、评分等走 `refreshCurrentGrid()`（→ `renderAlbumGrid`），否则可见卡片选中/星星状态不更新（冒烟 `ALBUM-BATCH` 回归锁定）
+
 ## 5. 常见操作
 
-- **跑测试**：`npm test`（25 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归）
-- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 `BA-COMPARE ba-ok ...`、`LB-COMPARE lb-ok ...`、`BATCH-DONE ... 1 / 1`、`BATCH-AFTER grid=3`、`TOGGLE-H toggle-h on=true off=true`、`CONSOLE-ERRORS []`）
+- **跑测试**：`npm test`（32 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归）
+- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE dark-ok ...`、`SHORTCUTS shortcut-ok ...`、`CONFIRM confirm-ok ...`、`LB-ZOOM lbzoom-ok zoomed=true panned=true ...`、`UPLOAD-OVERLAY overlay-ok ...`、`FLIP-GRID flip-ok ...`、`DRAFT draft-ok saved=true afterExport=404`、`CONSOLE-ERRORS []`；脚本已加主进程未捕获异常兜底与 90s 看门狗）
 - **启动开发**：`npm start` / `npm run electron`
 - **构建**：`npm run build:win` → `release/`（NSIS + portable）
 - **发版流程**（每次一致）：改版本号（package.json + package-lock.json + server-app.cjs 默认值 + index.html 关于页）→ CHANGELOG 加条目（中文+English+Release Assets+Notes）→ `release:` 提交 → push main → `git tag -a vX.Y.Z` + push tag → `gh release create vX.Y.Z --title "Luma Studio vX.Y.Z 桌面版" --notes-file ... --latest`，产物按 `Luma.Studio.Setup.X.Y.Z.exe` / `Luma.Studio.X.Y.Z.exe` 命名上传

@@ -694,3 +694,161 @@ test('HTTP: autoAdvance 设置默认开启且可关闭', async () => {
     await closeServer(srv);
   }
 });
+
+/* ============ v1.2 回归：设置新键 / adjust 新参数 / 草稿 / 封面 / dataDir ============ */
+test('sanitizeSettings: v1.2 新键校验与默认值', () => {
+  const s = sanitizeSettings({});
+  assert.equal(s.theme, 'light');
+  assert.equal(s.reduceMotion, 'system');
+  assert.equal(s.slideshowInterval, 3);
+  const ok = sanitizeSettings({ theme: 'dark', reduceMotion: 'on', slideshowInterval: 10 });
+  assert.equal(ok.theme, 'dark');
+  assert.equal(ok.reduceMotion, 'on');
+  assert.equal(ok.slideshowInterval, 10);
+  // 非法值回退默认
+  const bad = sanitizeSettings({ theme: 'blue', reduceMotion: 'sometimes', slideshowInterval: 7 });
+  assert.equal(bad.theme, 'light');
+  assert.equal(bad.reduceMotion, 'system');
+  assert.equal(bad.slideshowInterval, 3);
+});
+
+test('runPipeline: 旧请求无新参数时结果与 v1.1.0 一致（缺省=默认）', async () => {
+  const d = tmpdir();
+  const file = path.join(d, 'fixture.png');
+  await sharp(makeFixture(), { raw: { width: 200, height: 100, channels: 3 } }).png().toFile(file);
+  const out = await runPipeline(file, { output: { format: 'png' } }, {});
+  const meta = await sharp(out.buffer).metadata();
+  assert.equal(meta.width, 200);
+  assert.equal(meta.height, 100);
+});
+
+test('runPipeline: temperature/tint/vignette/grain 均可处理且不改尺寸', async () => {
+  const d = tmpdir();
+  const file = path.join(d, 'fixture.png');
+  await sharp(makeFixture(), { raw: { width: 200, height: 100, channels: 3 } }).png().toFile(file);
+  const out = await runPipeline(file, {
+    adjust: { temperature: 40, tint: -20, vignette: 60, grain: 30 },
+    output: { format: 'png' },
+  }, {});
+  const meta = await sharp(out.buffer).metadata();
+  assert.equal(meta.width, 200);
+  assert.equal(meta.height, 100);
+});
+
+test('HTTP: 草稿 PUT/GET/DELETE 往返与上限清理', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'draft.jpg');
+    const id = up.added[0].id;
+    const put = await fetch(`${base}/api/photos/${id}/draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adjust: { brightness: 1.1, temperature: 20 },
+        transform: {},
+        resize: { width: 100, height: 50 },
+        output: { format: 'jpeg', quality: 82 },
+      }),
+    });
+    const pj = await put.json();
+    assert.equal(pj.ok, true);
+    assert.equal(pj.draft.adjust.temperature, 20);
+
+    const got = await (await fetch(`${base}/api/photos/${id}/draft`)).json();
+    assert.equal(got.ok, true);
+    assert.equal(got.draft.resize.width, 100);
+
+    // 无草稿的照片返回 404
+    const up2 = await uploadJpeg(base, await makeNoiseJpeg(false), 'nodraft.jpg');
+    const miss = await fetch(`${base}/api/photos/${up2.added[0].id}/draft`);
+    assert.equal(miss.status, 404);
+
+    const del = await fetch(`${base}/api/photos/${id}/draft`, { method: 'DELETE' });
+    assert.equal((await del.json()).ok, true);
+    const gone = await fetch(`${base}/api/photos/${id}/draft`);
+    assert.equal(gone.status, 404);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 草稿超 8KB 被拒绝', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'bigdraft.jpg');
+    const id = up.added[0].id;
+    const r = await fetch(`${base}/api/photos/${id}/draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adjust: { pad: 'x'.repeat(9000) } }),
+    });
+    assert.equal(r.status, 400);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 草稿超过 1000 条时按 updatedAt 清理最旧', async () => {
+  const { srv, base, d } = await startServer();
+  try {
+    const ids = [];
+    for (let i = 0; i < 1001; i++) {
+      const id = 'draft-' + String(i).padStart(4, '0');
+      ids.push(id);
+      const r = await fetch(`${base}/api/photos/${id}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adjust: { brightness: 1 }, transform: {}, resize: {}, output: {} }),
+      });
+      assert.equal(r.status, 200, `第 ${i + 1} 条草稿应可保存`);
+    }
+    // 超过 1000 上限：最旧（第一条）被清理，最新（最后一条）保留
+    const oldest = await fetch(`${base}/api/photos/${ids[0]}/draft`);
+    assert.equal(oldest.status, 404, '最旧草稿应被清理');
+    const newest = await fetch(`${base}/api/photos/${ids[1000]}/draft`);
+    assert.equal(newest.status, 200, '最新草稿应保留');
+    const draftsFile = path.join(d, 'data', 'drafts.json');
+    const drafts = JSON.parse(fs.readFileSync(draftsFile, 'utf8'));
+    assert.equal(Object.keys(drafts).length, 1000, '草稿总数应限制在 1000');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 收藏夹 cover 取第一张加入的照片', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const upA = await uploadJpeg(base, await makeNoiseJpeg(false), 'c1.jpg');
+    const upB = await uploadJpeg(base, await makeNoiseJpeg(false), 'c2.jpg');
+    const idA = upA.added[0].id;
+    const idB = upB.added[0].id;
+    const created = await (await fetch(`${base}/api/albums`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '封面测试' }),
+    })).json();
+    await fetch(`${base}/api/albums/${created.album.id}/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [idB, idA] }),
+    });
+    const albums = await (await fetch(`${base}/api/albums`)).json();
+    const a = albums.find(x => x.id === created.album.id);
+    assert.equal(a.count, 2);
+    assert.equal(a.cover, idB, '封面应为第一张加入的照片');
+    const emptyAlbums = await (await fetch(`${base}/api/albums`)).json();
+    assert.equal(emptyAlbums.find(x => x.id !== created.album.id)?.cover ?? null, null);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: /api/stats 返回 dataDir', async () => {
+  const { srv, base, dirs } = await startServer();
+  try {
+    const s = await (await fetch(`${base}/api/stats`)).json();
+    assert.equal(s.dataDir, dirs.data);
+  } finally {
+    await closeServer(srv);
+  }
+});

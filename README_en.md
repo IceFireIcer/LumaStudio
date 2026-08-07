@@ -10,16 +10,27 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 
 ## Features
 
+### Design System & Global Components (v1.2)
+- **Dark mode**: manual light / dark toggle sharing the same accent color, with neutral colors adapted automatically
+- **Unified design tokens**: colors, spacing, radius, shadows, typography and motion are tokenized; custom scrollbars and keyboard focus styles
+- **Global interaction upgrades**: custom confirm modal (replaces native `confirm`), toast action buttons, directional page transitions, drag-and-drop upload anywhere in the window
+- **Reduced-motion tri-state**: follow system / force on (all animations zeroed) / force off
+
 ### Gallery
 - Drag-and-drop or click to upload (JPG / PNG / WebP / AVIF / GIF / TIFF / BMP)
 - Server-side WebP thumbnails with animated masonry grid
 - Hover actions: edit, info, download, delete
 - Fullscreen lightbox with keyboard navigation (`←` `→` `Esc`)
+- **Lightbox upgrades (v1.2)**: `3 / 25` counter pill, bottom filmstrip, EXIF summary bar, wheel zoom/pan (1×–5×), directional navigation animation
+- **Grid upgrades (v1.2)**: Flip transitions, hover quick rating, batch-bar thumbnails
 - Photos persist as real files on disk — no data loss on restart
 
 ### Editor (Lightroom-style)
 - **Presets**: Original, Vivid, Soft, Vintage, Mono, High-contrast
 - **Adjustments**: brightness, contrast, saturation, hue, sharpen, blur, grayscale — live CSS preview
+- **New parameters (v1.2)**: temperature, tint, vignette, grain; double-click slider reset, modification dots, Undo/Redo buttons
+- **Draft persistence (v1.2)**: edits auto-save as a single snapshot draft, restored on reopen, cleared after a successful export
+- **Canvas zoom/pan (v1.2)**: wheel zoom (0.25×–4×), drag pan, arrow-key crop nudging and rule-of-thirds grid
 - **Undo / Redo**: `Ctrl+Z` / `Ctrl+Y` (state-stack based)
 - **Transform**: rotate 90°, flip H/V, interactive crop with ratio chips (Free / 1:1 / 4:3 / 16:9 / 3:4)
 - **Resize**: exact pixel dimensions (aspect-locked) or quick 25 / 50 / 75 / 100 %
@@ -27,9 +38,11 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 - **Save as copy** or **overwrite original**
 - **Download to local** without saving to server
 - **Before / After**: split-screen comparison of the original vs. the edited result with a draggable divider
+- **Before/After upgrades (v1.2)**: drag anywhere to move the divider, left-right / top-bottom split toggle
 
 ### Metadata (EXIF)
 - View camera, lens, aperture, shutter, ISO, focal length, GPS, and more
+- **Grouped display (v1.2)**: Camera / Capture / Time / File / GPS sections; one-click value copy, Amap and Google Maps links for GPS
 - Edit Artist / Copyright / Description / Date (JPEG only) — full **UTF-8 / CJK support**
 - One-click **strip all metadata** for privacy
 
@@ -51,6 +64,7 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 - Create, rename, delete collections
 - Add / remove photos
 - Browse album contents
+- **Cover & batch (v1.2)**: first-photo card covers, full batch bar in album detail, drag photos into the sidebar album
 
 ### Search, Filter & Sort
 - Search by filename
@@ -59,9 +73,12 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 
 ### Slideshow
 - Auto-play (3 s interval), spacebar to pause/resume, arrow keys to navigate
+- **v1.2 upgrades**: Ken Burns pan, configurable interval (3 / 5 / 10 s), top progress bar, `3 / 25` counter
 
 ### Settings & About
 - Default export format & quality, thumbnail size, theme accent color
+- **Appearance card (v1.2)**: dark-mode switch, reduced-motion tri-state, shortcut cheatsheet entry, open-data-directory button
+- **Log upgrades (v1.2)**: search, pause live refresh, row expand & copy
 - Runtime info: Node version, sharp/libvips version, photo count, storage used, uptime
 
 ### Keyboard Shortcuts
@@ -76,6 +93,11 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 | `U` | Clear flag |
 | `C` / `Tab` | Side-by-side compare in lightbox / switch marking target |
 | `H` | Hide rejected photos |
+| `?` | Open / close the shortcut cheatsheet |
+| `←` `→` (lightbox zoomed) | Pan the zoomed image |
+| `Esc` / double-click (lightbox zoomed) | Reset zoom |
+| `←` `→` `↑` `↓` (editor crop) | Nudge crop box 1 px (`Shift` = 10 px) |
+| `[` `]` (editor crop) | Resize crop box 1 px (`Shift` = 10 px) |
 | `←` `→` | Navigate in lightbox / slideshow |
 | `Ctrl+Z` | Undo (editor) |
 | `Ctrl+Y` | Redo (editor) |
@@ -166,6 +188,9 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `POST` | `/api/photos/:id/rename` | Rename photo |
 | `GET` | `/api/settings` | Get settings |
 | `POST` | `/api/settings` | Update settings |
+| `PUT` | `/api/photos/:id/draft` | Save the edit draft |
+| `GET` | `/api/photos/:id/draft` | Read the edit draft (404 when none) |
+| `DELETE` | `/api/photos/:id/draft` | Clear the edit draft |
 | `GET` | `/api/stats` | Storage statistics |
 | `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`) |
 | `GET` | `/api/info` | System info |
@@ -178,7 +203,7 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `GET` | `/api/jobs/:id` | Query background job progress |
 | `POST` | `/api/jobs/:id/cancel` | Cancel a background job |
 | `POST` | `/api/photos/download-zip` | Download as ZIP `{ ids }` |
-| `GET` | `/api/albums` | List albums |
+| `GET` | `/api/albums` | List albums (each with first-photo `cover`) |
 | `POST` | `/api/albums` | Create album `{ name }` |
 | `DELETE` | `/api/albums/:id` | Delete album |
 | `POST` | `/api/albums/:id/rename` | Rename album |
@@ -192,7 +217,8 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 ```jsonc
 {
   "adjust":    { "brightness": 1.1, "contrast": 1.2, "saturation": 1.4,
-                 "hue": 0, "sharpen": 2, "blur": 0, "grayscale": false },
+                 "hue": 0, "sharpen": 2, "blur": 0, "grayscale": false,
+                 "temperature": 0, "tint": 0, "vignette": 0, "grain": 0 },
   "transform": { "rotate": 90, "flipH": false, "flipV": false,
                  "crop": { "left": 100, "top": 50, "width": 400, "height": 300 } },
   "resize":    { "width": 1280, "height": 720 },
