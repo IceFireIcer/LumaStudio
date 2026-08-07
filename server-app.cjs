@@ -916,13 +916,24 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
     if (!p) return res.status(404).json({ error: '未找到' });
     const full = path.join(DIRS.uploads, p.file);
     try {
-      const data = await exifr.parse(full, { tiff: true, exif: true, gps: true, ifd0: true }).catch(() => null) || {};
       const ext = path.extname(full).toLowerCase();
+      const tiff = extractExifTiff(fs.readFileSync(full), ext);
+      let data = {};
+      if (ext === '.png' || ext === '.webp') {
+        // exifr 的 Node 版不解析 WebP EXIF，PNG eXIf 也不稳；从 chunk 取出 TIFF、
+        // 剥离 'Exif\0\0' 前缀后交给 exifr，得到与 JPEG 一致的命名结果（相机/拍摄参数/GPS）
+        if (tiff) {
+          const prefix = Buffer.from('Exif\0\0', 'binary');
+          const bare = tiff.length >= 6 && tiff.subarray(0, 6).equals(prefix) ? tiff.subarray(6) : tiff;
+          data = await exifr.parse(bare, { tiff: true, exif: true, gps: true, ifd0: true }).catch(() => null) || {};
+        }
+      } else {
+        data = await exifr.parse(full, { tiff: true, exif: true, gps: true, ifd0: true }).catch(() => null) || {};
+      }
       // 文本标签统一从 TIFF 字节解析（兼容 UTF-8 / UTF-16 / GBK，piexif/exifr 对后两者常读成乱码）
-      if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+      if (tiff) {
         try {
-          const tiff = extractExifTiff(fs.readFileSync(full), ext);
-          if (tiff) Object.assign(data, readTiffTextTags(tiff));
+          Object.assign(data, readTiffTextTags(tiff));
         } catch { /* 沿用 exifr 结果 */ }
       }
       res.json({ ok: true, exif: data });
@@ -958,16 +969,22 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
       exifObj['0th'][piexif.ImageIFD.DateTime] = slice(datetime);
       exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = slice(datetime);
     }
+    let tiffData;
+    try {
+      tiffData = Buffer.from(piexif.dump(exifObj), 'binary');
+    } catch {
+      return res.status(400).json({ error: 'EXIF 内容无法序列化，原文件未改动' });
+    }
     if (ext === '.png') {
-      const out = writePngExif(bin, Buffer.from(piexif.dump(exifObj), 'binary'));
+      const out = writePngExif(bin, tiffData);
       if (!out) return res.status(400).json({ error: 'PNG 结构无法写入 EXIF' });
       fs.writeFileSync(full, out);
     } else if (ext === '.webp') {
-      const out = writeWebpExif(bin, Buffer.from(piexif.dump(exifObj), 'binary'));
+      const out = writeWebpExif(bin, tiffData);
       if (!out) return res.status(400).json({ error: 'WebP 结构无法写入 EXIF' });
       fs.writeFileSync(full, out);
     } else {
-      fs.writeFileSync(full, Buffer.from(piexif.insert(piexif.dump(exifObj), binary), 'binary'));
+      fs.writeFileSync(full, Buffer.from(piexif.insert(tiffData.toString('binary'), binary), 'binary'));
     }
     res.json({ ok: true });
   }));

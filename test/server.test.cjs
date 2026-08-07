@@ -29,6 +29,9 @@ const {
   normalizeAngle,
   readPngExif,
   readWebpExif,
+  writePngExif,
+  writeWebpExif,
+  readWebpChunks,
 } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -465,6 +468,105 @@ test('HTTP: PNG / WebP EXIF 无损写入与读取', async () => {
       // 绕过 API 读取路径，直接验证文件内存在 EXIF chunk（无损写入，未重编码）
       const chunk = fmt === 'png' ? readPngExif(fileBuf) : readWebpExif(fileBuf);
       assert.ok(chunk && chunk.length > 0, `${label} 应包含 EXIF chunk`);
+    }
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: PNG/WebP EXIF 读取返回完整拍摄字段（相机/快门/光圈）', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const raw = makeFixture();
+    const png = await sharp(raw, { raw: { width: 200, height: 100, channels: 3 } }).png().toBuffer();
+    const webp = await sharp(raw, { raw: { width: 200, height: 100, channels: 3 } }).webp({ quality: 90 }).toBuffer();
+    const dump = piexif.dump({
+      '0th': { [piexif.ImageIFD.Make]: 'TestCam', [piexif.ImageIFD.Model]: 'X100' },
+      Exif: {
+        [piexif.ExifIFD.ExposureTime]: [1, 125],
+        [piexif.ExifIFD.FNumber]: [28, 10],
+        [piexif.ExifIFD.DateTimeOriginal]: '2026:08:07 12:00:00',
+      },
+    });
+    const tiff = Buffer.from(dump, 'binary');
+    const files = [
+      ['a.png', writePngExif(png, tiff)],
+      ['b.webp', writeWebpExif(webp, tiff)],
+    ];
+    for (const [name, buf] of files) {
+      const up = await uploadJpeg(base, buf, name);
+      assert.equal(up.added.length, 1, `${name} 应上传成功`);
+      const g = await (await fetch(`${base}/api/photos/${up.added[0].id}/exif`)).json();
+      const ex = g.exif || {};
+      assert.equal(ex.Make, 'TestCam', `${name} 相机品牌`);
+      assert.equal(ex.Model, 'X100', `${name} 相机型号`);
+      assert.equal(ex.ExposureTime, 0.008, `${name} 快门`);
+      assert.equal(ex.FNumber, 2.8, `${name} 光圈`);
+    }
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('writeWebpExif: 动画 WebP（VP8X+ANIM+ANMF）可写入 EXIF 并设置 VP8X 标志', () => {
+  const chunk = (type, data) => {
+    const h = Buffer.alloc(8);
+    h.write(type, 0, 4, 'ascii');
+    h.writeUInt32LE(data.length, 4);
+    return Buffer.concat([h, data, (data.length & 1) ? Buffer.from([0]) : Buffer.alloc(0)]);
+  };
+  const vp8x = Buffer.alloc(10);
+  vp8x[0] = 0x02; // ANIM 标志
+  vp8x[4] = 7; vp8x[7] = 7; // 画布 8x8
+  const anim = Buffer.alloc(6);
+  anim[0] = 0xFF; anim[1] = 0xFF; anim[2] = 0xFF; anim[3] = 0xFF; anim[4] = 0; anim[5] = 0;
+  const anmfHdr = Buffer.alloc(16);
+  anmfHdr.writeUInt16LE(0, 0);   // x
+  anmfHdr.writeUInt16LE(0, 2);   // y
+  anmfHdr.writeUInt16LE(7, 4);   // width-1
+  anmfHdr.writeUInt16LE(7, 6);   // height-1
+  anmfHdr[8] = 100; anmfHdr[9] = 0; anmfHdr[10] = 0; // 100ms
+  anmfHdr[11] = 0;               // flags
+  const anmf = Buffer.concat([anmfHdr, Buffer.from('VP8 '), Buffer.from([0x9D, 0x01, 0x2A, 0x00, 0x07, 0x00, 0x07, 0x00])]);
+  const body = Buffer.concat([chunk('VP8X', vp8x), chunk('ANIM', anim), chunk('ANMF', anmf)]);
+  const header = Buffer.alloc(12);
+  header.write('RIFF', 0, 4, 'ascii');
+  header.writeUInt32LE(4 + body.length, 4);
+  header.write('WEBP', 8, 4, 'ascii');
+  const animFile = Buffer.concat([header, body]);
+
+  const tiff = Buffer.from(piexif.dump({ '0th': { [piexif.ImageIFD.Make]: 'AnimCam' } }), 'binary');
+  const out = writeWebpExif(animFile, tiff);
+  assert.ok(out, '动画 WebP 应能写入 EXIF');
+  const chunks = readWebpChunks(out);
+  assert.ok(chunks, '写入后仍应可解析为 chunk 列表');
+  assert.ok(chunks.find(c => c.type === 'EXIF'), '应包含 EXIF chunk');
+  const vp8xAfter = chunks.find(c => c.type === 'VP8X');
+  assert.ok(vp8xAfter && (vp8xAfter.data[0] & 0x08), 'VP8X 应设置 EXIF 标志位');
+  assert.equal(chunks.find(c => c.type === 'ANIM').data.length, 6, 'ANIM chunk 应保留');
+  assert.ok(readWebpExif(out) && readWebpExif(out).length > 0, 'EXIF 应可读回');
+});
+
+test('HTTP: 损坏的 WebP/PNG 写入 EXIF 安全拒绝且原文件不变', async () => {
+  const { srv, base, dirs, getDb } = await startServer();
+  try {
+    const raw = makeFixture();
+    const png = await sharp(raw, { raw: { width: 200, height: 100, channels: 3 } }).png().toBuffer();
+    const webp = await sharp(raw, { raw: { width: 200, height: 100, channels: 3 } }).webp({ quality: 90 }).toBuffer();
+    for (const [name, buf] of [['a.png', png], ['b.webp', webp]]) {
+      const up = await uploadJpeg(base, buf, name);
+      const p = getDb().photos.find(x => x.id === up.added[0].id);
+      const full = path.join(dirs.uploads, p.file);
+      const original = fs.readFileSync(full);
+      const broken = original.subarray(0, Math.floor(original.length / 2));
+      fs.writeFileSync(full, broken); // 截断模拟损坏
+      const w = await fetch(`${base}/api/photos/${p.id}/exif`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artist: 'x' }),
+      });
+      assert.equal(w.status, 400, `${name} 损坏文件应返回 400`);
+      assert.ok(fs.readFileSync(full).equals(broken), `${name} 原文件不应被改写`);
     }
   } finally {
     await closeServer(srv);
