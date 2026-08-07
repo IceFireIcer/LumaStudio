@@ -30,6 +30,8 @@ function hideLoading(){ $('#loadingOverlay').classList.remove('show'); }
 let photos = [];
 let current = null;   // 正在编辑/查看的照片
 let lbIndex = -1;
+let lastExifId = null;   // 信息页当前已加载的照片 id
+let lastEditorId = null; // 编辑器当前已加载的照片 id
 let settings = {};
 let selected = new Set(); // 多选照片 ID 集合
 let albums = [];
@@ -57,7 +59,18 @@ function switchView(name){
     $('#exifEmpty').classList.toggle('show', !has);
   }
 }
-$$('.nav-item').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+// 侧边栏导航：信息/编辑器页面若已有当前照片，需先加载对应内容，
+// 否则只切视图外壳会导致左侧预览空白（图片 src 和元数据都没有设置）
+$$('.nav-item').forEach(b=>b.onclick=()=>{
+  const v = b.dataset.view;
+  if(v==='exif' && current){
+    if(lastExifId !== current.id) openExif(current); else switchView('exif');
+  } else if(v==='editor' && current){
+    if(lastEditorId !== current.id) openEditor(current); else switchView('editor');
+  } else {
+    switchView(v);
+  }
+});
 $$('[data-goto]').forEach(b=>b.onclick=()=>switchView(b.dataset.goto));
 
 /* ============ 相册 ============ */
@@ -321,6 +334,7 @@ function applyEditState(){
 
 function openEditor(p){
   current = p;
+  lastEditorId = p.id;
   edit = defaultEdit();
   undoStack = [];
   redoStack = [];
@@ -638,6 +652,7 @@ $('#editName').ondblclick = async ()=>{
 /* ============ EXIF ============ */
 async function openExif(p){
   current = p;
+  lastExifId = p.id;
   switchView('exif');
   $('#exifEmpty').classList.remove('show');
   $('#exifWrap').classList.remove('hidden');

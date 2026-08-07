@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.0.9
+
+### 中文
+- 修复从侧边栏进入“信息”页时左侧预览空白的问题（此前只切换页面外壳，不会加载当前照片的图片与元数据；现在会自动加载）
+- 修复侧边栏“编辑器”入口未加载当前照片的问题（已加载的照片进入时不重置编辑状态）
+- 信息页预览改为棋盘格底并给预览图加白底，浅色/白色图片不再融入背景
+
+### English
+- Fixed the blank preview when entering the Info page from the sidebar (the view shell was shown without loading the current photo's image and metadata; it now loads automatically)
+- Fixed the sidebar Editor entry not loading the current photo (edits are preserved when re-entering the same photo)
+- The Info preview now uses a checkerboard background with white-bordered images, so light/white photos no longer blend into the background
+
+### Release Assets
+- `Luma Studio Setup 1.0.9.exe` — Windows installer, recommended for most users
+- `Luma Studio 1.0.9.exe` — Windows portable build, recommended for direct use without installation
+
+### Notes
+- This release fixes the blank Info/Editor preview when navigating from the sidebar and improves preview contrast for light images.
+
+---
+
 ## v1.0.8
 
 ### 中文

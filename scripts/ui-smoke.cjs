@@ -7,6 +7,7 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const sharp = require('sharp');
 const { createAppServer } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -28,6 +29,13 @@ app.whenReady().then(async () => {
 
   const server = serverApp.listen(0, '127.0.0.1', async () => {
     const port = server.address().port;
+    // 先上传一张测试照片，让页面有可选的当前照片
+    const jpeg = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: { r: 120, g: 180, b: 90 } },
+    }).jpeg().toBuffer();
+    const fd = new FormData();
+    fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke.jpg');
+    await fetch(`http://127.0.0.1:${port}/api/upload`, { method: 'POST', body: fd });
     const errors = [];
     const win = new BrowserWindow({
       show: false,
@@ -111,6 +119,24 @@ app.whenReady().then(async () => {
           } catch (e) { return 'layout-error:' + e.message; }
         })()`);
         console.log('LAYOUT ' + layout);
+
+        // 回归：侧边栏“信息”在已有当前照片时必须加载图片和元数据
+        // （曾只调用 switchView 显示外壳，导致左侧预览空白、无 EXIF 请求）
+        const navExif = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            const cards = document.querySelectorAll('.card');
+            if (!cards.length) return 'nav-exif-error:no-cards';
+            cards[0].querySelector('.edit').click(); // 打开编辑器，设置 current
+            await new Promise(r => setTimeout(r, 600));
+            document.getElementById('navExif').click(); // 侧边栏切到信息页
+            await new Promise(r => setTimeout(r, 1200));
+            const img = document.getElementById('exifImg');
+            return 'nav-exif-ok src=' + (img.src.includes('/files/') ? 'set' : 'EMPTY') +
+              ' loaded=' + (img.naturalWidth > 0) + ' w=' + img.naturalWidth +
+              ' list=' + (document.getElementById('exifList').textContent.length > 0);
+          } catch (e) { return 'nav-exif-error:' + e.message; }
+        })()`);
+        console.log('NAV-EXIF ' + navExif);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }
