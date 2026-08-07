@@ -1,6 +1,6 @@
 /**
  * UI 冒烟测试：用 Electron 真实加载前端，捕获渲染进程 JS 错误，
- * 并验证 GSAP / UIAnim 已加载、动画可触发。
+ * 并验证 GSAP / UIAnim 已加载、动画可触发、v1.1.0 选片工作流可交互。
  * 运行：npx electron scripts/ui-smoke.cjs
  */
 const { app, BrowserWindow } = require('electron');
@@ -11,6 +11,9 @@ const sharp = require('sharp');
 const { createAppServer } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+// 固定端口：CSRF 同源校验在 createAppServer 时按传入端口生成白名单，
+// 若用端口 0（随机），渲染进程的 POST 会被 403 拦截。
+const SMOKE_PORT = 18765;
 
 app.whenReady().then(async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'luma-ui-smoke-'));
@@ -20,28 +23,35 @@ app.whenReady().then(async () => {
     data: path.join(d, 'data'),
   };
   const { app: serverApp } = createAppServer({
-    port: 0,
+    port: SMOKE_PORT,
     dirs,
     logDir: path.join(d, 'log'),
     publicDir: path.join(ROOT, 'public'),
     version: '1.0.7-smoke',
   });
 
-  const server = serverApp.listen(0, '127.0.0.1', async () => {
-    const port = server.address().port;
-    // 先上传一张测试照片，让页面有可选的当前照片
+  // OOBE 路由仅由 electron-main.cjs 注册（注册表持久化），冒烟环境注册空实现避免 404
+  serverApp.get('/api/oobe/status', (req, res) => res.json({ completed: true }));
+  serverApp.post('/api/oobe/complete', (req, res) => res.json({ ok: true }));
+  serverApp.post('/api/oobe/reset', (req, res) => res.json({ ok: true }));
+
+  const server = serverApp.listen(SMOKE_PORT, '127.0.0.1', async () => {
+    const port = SMOKE_PORT;
+    // 先上传两张测试照片，让页面有可选的当前照片与对比对象
     const jpeg = await sharp({
       create: { width: 64, height: 64, channels: 3, background: { r: 120, g: 180, b: 90 } },
     }).jpeg().toBuffer();
     const fd = new FormData();
-    fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke.jpg');
+    fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-a.jpg');
+    fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-b.jpg');
     await fetch(`http://127.0.0.1:${port}/api/upload`, { method: 'POST', body: fd });
     const errors = [];
     const win = new BrowserWindow({
-      show: false,
+      show: true,
       width: 1280,
       height: 860,
-      webPreferences: { nodeIntegration: false, contextIsolation: true },
+      // 隐藏窗口默认节流 rAF/定时器，会让 GSAP 动画的 onComplete 迟迟不触发
+      webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
     });
 
     win.webContents.on('console-message', (ev) => {
@@ -137,6 +147,102 @@ app.whenReady().then(async () => {
           } catch (e) { return 'nav-exif-error:' + e.message; }
         })()`);
         console.log('NAV-EXIF ' + navExif);
+
+        // 前后对比：编辑器进入对比模式（原图层 + 分界线显示，--ba 变量生效）
+        const baCompare = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.getElementById('navEditor').click();
+            await new Promise(r => setTimeout(r, 600));
+            document.getElementById('baToggle').click();
+            await new Promise(r => setTimeout(r, 300));
+            const orig = document.getElementById('baOrigImg');
+            const div = document.getElementById('baDivider');
+            return 'ba-ok origHidden=' + orig.hidden + ' divHidden=' + div.hidden +
+              ' src=' + (orig.src.includes('/files/') ? 'set' : 'EMPTY') +
+              ' ba=' + document.getElementById('canvasStage').style.getPropertyValue('--ba');
+          } catch (e) { return 'ba-error:' + e.message; }
+        })()`);
+        console.log('BA-COMPARE ' + baCompare);
+
+        // 灯箱并排对比：C 进入、X 标记不抛错、Esc 先退对比再关灯箱
+        const lbCompare = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.querySelectorAll('.card')[0].querySelector('img').click();
+            await new Promise(r => setTimeout(r, 500));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            const wrap = document.getElementById('lbCompareWrap');
+            const opened = !wrap.hidden && document.getElementById('lbImgA').src.includes('/files/');
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+            await new Promise(r => setTimeout(r, 400));
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            const cmpClosed = wrap.hidden && document.getElementById('lightbox').classList.contains('open');
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            let lbClosed = false;
+            for (let i = 0; i < 20; i++) {
+              if (!document.getElementById('lightbox').classList.contains('open')) { lbClosed = true; break; }
+              await new Promise(r => setTimeout(r, 100));
+            }
+            return 'lb-ok opened=' + opened + ' cmpClosed=' + cmpClosed + ' lbClosed=' + lbClosed +
+              ' vis=' + document.visibilityState +
+              ' reduce=' + (window.UIAnim ? window.UIAnim.reduce : 'n/a');
+          } catch (e) { return 'lb-error:' + e.message; }
+        })()`);
+        console.log('LB-COMPARE ' + lbCompare);
+
+        // 批量处理：多选 → 打开模态框 → 启动任务
+        const batchUi = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.querySelectorAll('.card')[0].querySelector('.sel-check').click();
+            await new Promise(r => setTimeout(r, 200));
+            const barVisible = !document.getElementById('batchBar').hidden;
+            document.getElementById('batchProcess').click();
+            await new Promise(r => setTimeout(r, 300));
+            const modalOpen = !document.getElementById('batchModal').hidden;
+            document.getElementById('batchStart').click();
+            return 'batch-ok bar=' + barVisible + ' modal=' + modalOpen +
+              ' progress=' + (!document.getElementById('batchProgress').hidden);
+          } catch (e) { return 'batch-error:' + e.message; }
+        })()`);
+        console.log('BATCH-UI ' + batchUi);
+
+        // 等待批量任务完成（后台 job 结束后按钮文案变为“关闭”）
+        let batchDone = false;
+        for (let i = 0; i < 40; i++) {
+          const st = await win.webContents.executeJavaScript(`({
+            cancelText: document.getElementById('batchCancel').textContent,
+            progress: document.getElementById('batchProgressText').textContent
+          })`);
+          if (st.cancelText === '关闭') {
+            batchDone = true;
+            console.log('BATCH-DONE ' + JSON.stringify(st));
+            break;
+          }
+          await new Promise(r => setTimeout(r, 500));
+        }
+        if (!batchDone) console.log('BATCH-DONE timeout');
+        const afterBatch = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.getElementById('batchCancel').click();
+            await new Promise(r => setTimeout(r, 600));
+            return 'grid=' + document.querySelectorAll('#grid .card').length;
+          } catch (e) { return 'close-error:' + e.message; }
+        })()`);
+        console.log('BATCH-AFTER ' + afterBatch);
+
+        // H 键隐藏排除开关
+        const toggleH = await win.webContents.executeJavaScript(`(function(){
+          try {
+            document.querySelector('.nav-item[data-view="library"]').click();
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+            const on = document.getElementById('hideRejectBtn').classList.contains('active');
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+            const off = !document.getElementById('hideRejectBtn').classList.contains('active');
+            return 'toggle-h on=' + on + ' off=' + off;
+          } catch (e) { return 'toggle-h-error:' + e.message; }
+        })()`);
+        console.log('TOGGLE-H ' + toggleH);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }

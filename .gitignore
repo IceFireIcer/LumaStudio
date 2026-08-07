@@ -24,4 +24,5 @@ t[0-9].*
 
 # Build output
 release/
+release.old-*/
 *.iss.tmp
