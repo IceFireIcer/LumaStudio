@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
   defaultQuality: 82,
   thumbSize: 480,
   accent: '#0071e3',
+  autoAdvance: true,
 };
 const MAX_LOG_SIZE = 10 * 1024 * 1024;
 const MAX_LOG_BACKUPS = 3;
@@ -155,6 +156,7 @@ function sanitizeSettings(input = {}) {
     defaultQuality: clampInt(src.defaultQuality, 1, 100, DEFAULT_SETTINGS.defaultQuality),
     thumbSize: clampInt(src.thumbSize, 120, 1200, DEFAULT_SETTINGS.thumbSize),
     accent: /^#[0-9a-fA-F]{6}$/.test(String(src.accent || '')) ? String(src.accent) : DEFAULT_SETTINGS.accent,
+    autoAdvance: src.autoAdvance == null ? DEFAULT_SETTINGS.autoAdvance : toBool(src.autoAdvance),
   };
 }
 
@@ -590,7 +592,7 @@ function extractExifTiff(buf, ext) {
 }
 
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.9', isElectron = false }) {
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.1.0', isElectron = false }) {
   sharp.cache(false);
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const { logger, LOG_FILE, LOG_DIR } = createLogger(logDir);
@@ -691,6 +693,66 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.9', isE
   app.get('/api/photos', (req, res) => {
     res.json([...db.photos].sort((a, b) => b.time - a.time));
   });
+
+  /* ---------- 批量操作 ----------
+   * 必须注册在 /api/photos/:id 系列路由之前：否则 'batch' 会被当作 id 吞掉，
+   * 批量端点永远命中单张照片路由并返回 404。
+   */
+  app.post('/api/photos/batch/stars', (req, res) => {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+    const s = clampInt(req.body && req.body.stars, 0, 5, 0);
+    let n = 0;
+    for (const id of ids) {
+      const p = db.photos.find(x => x.id === id);
+      if (p) { p.stars = s; n++; }
+    }
+    persistDB();
+    res.json({ ok: true, updated: n, stars: s });
+  });
+
+  app.post('/api/photos/batch/flag', (req, res) => {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+    const f = (req.body && req.body.flag === 'pick' || req.body && req.body.flag === 'reject') ? req.body.flag : null;
+    let n = 0;
+    for (const id of ids) {
+      const p = db.photos.find(x => x.id === id);
+      if (p) { p.flag = f; n++; }
+    }
+    persistDB();
+    res.json({ ok: true, updated: n, flag: f });
+  });
+
+  app.post('/api/photos/batch/delete', ah(async (req, res) => {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+    let n = 0;
+    for (const id of ids) {
+      const idx = db.photos.findIndex(x => x.id === id);
+      if (idx === -1) continue;
+      const p = db.photos[idx];
+      await fsp.rm(path.join(DIRS.uploads, p.file), { force: true });
+      await fsp.rm(path.join(DIRS.thumbs, p.id + '.webp'), { force: true });
+      db.photos.splice(idx, 1);
+      n++;
+      for (const a of db.albums) a.photoIds = a.photoIds.filter(i => i !== id);
+    }
+    persistDB();
+    res.json({ ok: true, deleted: n });
+  }));
+
+  app.post('/api/photos/batch/process', (req, res) => {
+    const body = req.body || {};
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter(x => typeof x === 'string' && x).slice(0, 500)
+      : [];
+    if (!ids.length) return res.status(400).json({ error: '未选择照片' });
+    const mode = body.mode === 'overwrite' ? 'overwrite' : 'copy';
+    const pipeline = (body.pipeline && typeof body.pipeline === 'object') ? body.pipeline : {};
+    const job = createJob('batch-process', { ids, pipeline, mode });
+    runBatchJob(job);
+    logger.info('backend', '批量处理任务已创建', { job: job.id, total: job.total, mode });
+    res.json({ ok: true, jobId: job.id, total: job.total });
+  });
+
   app.get('/api/photos/:id', (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -977,47 +1039,128 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.9', isE
     res.json({ ok: true, count: a.photoIds.length });
   });
 
-  /* ---------- 批量操作 ---------- */
-  app.post('/api/photos/batch/stars', (req, res) => {
-    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
-    const s = clampInt(req.body && req.body.stars, 0, 5, 0);
-    let n = 0;
-    for (const id of ids) {
-      const p = db.photos.find(x => x.id === id);
-      if (p) { p.stars = s; n++; }
+  /* ---------- 后台任务：批量处理（队列 + 进度 + 取消） ---------- */
+  const jobs = new Map();
+  const MAX_JOBS = 20;
+
+  function createJob(type, payload) {
+    const job = {
+      id: nanoid(10),
+      type,
+      status: 'running', // running | done | canceled | error
+      total: payload.ids.length,
+      done: 0,
+      current: null,
+      results: [],
+      errors: [],
+      canceled: false,
+      error: null,
+      payload,
+      createdAt: Date.now(),
+    };
+    jobs.set(job.id, job);
+    // 只清理已结束的旧任务，避免误删运行中的任务
+    if (jobs.size > MAX_JOBS) {
+      const finished = [...jobs.entries()].find(([, j]) => j.status !== 'running');
+      if (finished) jobs.delete(finished[0]);
     }
-    persistDB();
-    res.json({ ok: true, updated: n, stars: s });
+    return job;
+  }
+
+  async function runBatchJob(job) {
+    const { ids, pipeline, mode } = job.payload;
+    try {
+      for (const id of ids) {
+        if (job.canceled) {
+          job.status = 'canceled';
+          break;
+        }
+        const p = db.photos.find(x => x.id === id);
+        if (!p) {
+          job.errors.push({ id, error: '未找到' });
+          job.done++;
+          continue;
+        }
+        job.current = { id, name: p.name };
+        try {
+          const opts = JSON.parse(JSON.stringify(pipeline || {}));
+          // 保持原格式：按每张照片的真实格式决定输出（gif/tiff/bmp 不支持时回退 jpeg）
+          if (opts.output && opts.output.format === 'keep') {
+            opts.output.format = FMT_EXT[p.format] || 'jpeg';
+          }
+          // 按百分比缩放：以每张照片自身像素为准
+          const scale = clampNum(opts.resizeScale, 0.05, 1, 1);
+          if (scale < 1 && p.width && p.height) {
+            opts.resize = {
+              width: Math.max(1, Math.round(p.width * scale)),
+              height: Math.max(1, Math.round(p.height * scale)),
+            };
+          }
+          delete opts.resizeScale;
+
+          const full = path.join(DIRS.uploads, p.file);
+          const { buffer, ext } = await runPipeline(full, opts, settings);
+          if (mode === 'overwrite') {
+            const newName = p.id + '.' + ext;
+            const newPath = path.join(DIRS.uploads, newName);
+            if (newName !== p.file) await fsp.rm(full, { force: true });
+            await fsp.writeFile(newPath, buffer);
+            Object.assign(p, await buildMeta(newPath, p.id, p.name));
+            await makeThumb(newPath, p.id, settings.thumbSize, DIRS.thumbs);
+            job.results.push({ id, name: p.name, mode: 'overwrite' });
+          } else {
+            const newId = nanoid(10);
+            const newName = newId + '.' + ext;
+            const newPath = path.join(DIRS.uploads, newName);
+            await fsp.writeFile(newPath, buffer);
+            await makeThumb(newPath, newId, settings.thumbSize, DIRS.thumbs);
+            const baseName = p.name.replace(/\.[^.]+$/, '');
+            const meta = await buildMeta(newPath, newId, `${baseName}_edited.${ext}`);
+            db.photos.push(meta);
+            job.results.push({ id, name: meta.name, mode: 'copy', newId });
+          }
+          persistDB();
+        } catch (e) {
+          job.errors.push({ id, name: p.name, error: e.message });
+        }
+        job.done++;
+        job.current = null;
+      }
+      if (job.status !== 'canceled') job.status = 'done';
+      logger.info('backend', `批量处理完成 job=${job.id}`, {
+        total: job.total,
+        done: job.done,
+        errors: job.errors.length,
+      });
+    } catch (e) {
+      job.status = 'error';
+      job.error = e.message;
+      logger.error('backend', '批量处理任务异常', { job: job.id, message: e.message });
+    }
+  }
+
+  app.get('/api/jobs/:id', (req, res) => {
+    const job = jobs.get(req.params.id);
+    if (!job) return res.status(404).json({ error: '任务不存在' });
+    res.json({
+      id: job.id,
+      type: job.type,
+      status: job.status,
+      total: job.total,
+      done: job.done,
+      current: job.current,
+      results: job.results,
+      errors: job.errors,
+      error: job.error,
+    });
   });
 
-  app.post('/api/photos/batch/flag', (req, res) => {
-    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
-    const f = (req.body && req.body.flag === 'pick' || req.body && req.body.flag === 'reject') ? req.body.flag : null;
-    let n = 0;
-    for (const id of ids) {
-      const p = db.photos.find(x => x.id === id);
-      if (p) { p.flag = f; n++; }
-    }
-    persistDB();
-    res.json({ ok: true, updated: n, flag: f });
+  app.post('/api/jobs/:id/cancel', (req, res) => {
+    const job = jobs.get(req.params.id);
+    if (!job) return res.status(404).json({ error: '任务不存在' });
+    if (job.status === 'running') job.canceled = true;
+    res.json({ ok: true, status: job.status });
   });
-
-  app.post('/api/photos/batch/delete', ah(async (req, res) => {
-    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
-    let n = 0;
-    for (const id of ids) {
-      const idx = db.photos.findIndex(x => x.id === id);
-      if (idx === -1) continue;
-      const p = db.photos[idx];
-      await fsp.rm(path.join(DIRS.uploads, p.file), { force: true });
-      await fsp.rm(path.join(DIRS.thumbs, p.id + '.webp'), { force: true });
-      db.photos.splice(idx, 1);
-      n++;
-      for (const a of db.albums) a.photoIds = a.photoIds.filter(i => i !== id);
-    }
-    persistDB();
-    res.json({ ok: true, deleted: n });
-  }));
 
   /* ---------- 批量下载 ZIP（条目名净化） ---------- */
   app.post('/api/photos/download-zip', (req, res) => {
@@ -1052,6 +1195,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.9', isE
       const lower = String(q).toLowerCase();
       list = list.filter(p => String(p.name).toLowerCase().includes(lower));
     }
+    if (toBool(req.query.hideReject)) list = list.filter(p => p.flag !== 'reject');
     if (stars) list = list.filter(p => p.stars === Number(stars));
     if (flag === 'pick') list = list.filter(p => p.flag === 'pick');
     else if (flag === 'reject') list = list.filter(p => p.flag === 'reject');

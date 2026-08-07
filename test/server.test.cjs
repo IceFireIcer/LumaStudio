@@ -119,6 +119,17 @@ function closeServer(srv) {
   return new Promise(resolve => srv.close(resolve));
 }
 
+async function waitJob(base, jobId, timeout = 10000) {
+  const deadline = Date.now() + timeout;
+  let j;
+  do {
+    j = await (await fetch(`${base}/api/jobs/${jobId}`)).json();
+    if (j.status === 'done' || j.status === 'error' || j.status === 'canceled') return j;
+    await new Promise(r => setTimeout(r, 100));
+  } while (Date.now() < deadline);
+  return j;
+}
+
 /* ============ 单元测试 ============ */
 test('normalizeAngle 归一化为 0/90/180/270', () => {
   assert.equal(normalizeAngle(0), 0);
@@ -485,6 +496,200 @@ test('HTTP: db.json 损坏时自动备份并回退', async () => {
     const corrupt = fs.readdirSync(dirs.data).filter(f => f.includes('.corrupt-'));
     assert.ok(corrupt.length > 0, '损坏文件应被备份为 .corrupt-*');
     assert.deepEqual(getDb().photos, []);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+/* ============ v1.1.0 选片工作流：批量处理 / 隐藏排除 / 选片设置 ============ */
+test('HTTP: 批量评分/标记路由不被 /:id 遮蔽（回归）', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const upA = await uploadJpeg(base, await makeNoiseJpeg(false), 'a.jpg');
+    const upB = await uploadJpeg(base, await makeNoiseJpeg(false), 'b.jpg');
+    const ids = [upA.added[0].id, upB.added[0].id];
+
+    const r = await fetch(`${base}/api/photos/batch/stars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, stars: 4 }),
+    });
+    assert.equal(r.status, 200, '批量评分应命中批量路由而非 404');
+    const j = await r.json();
+    assert.equal(j.updated, 2);
+    assert.equal(j.stars, 4);
+
+    const fl = await fetch(`${base}/api/photos/batch/flag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, flag: 'pick' }),
+    });
+    const fj = await fl.json();
+    assert.equal(fj.updated, 2);
+    assert.equal(fj.flag, 'pick');
+
+    // 单张照片路由不受影响
+    const one = await fetch(`${base}/api/photos/${ids[0]}`);
+    assert.equal(one.status, 200);
+    const op = await one.json();
+    assert.equal(op.stars, 4);
+    assert.equal(op.flag, 'pick');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 批量处理创建副本并报告进度（逐文件错误隔离）', async () => {
+  const { srv, base, dirs, getDb } = await startServer();
+  try {
+    const upA = await uploadJpeg(base, await makeNoiseJpeg(false), 'a.jpg');
+    const upB = await uploadJpeg(base, await makeNoiseJpeg(false), 'b.jpg');
+    const ids = [upA.added[0].id, upB.added[0].id, 'not-exist-id'];
+
+    const r = await fetch(`${base}/api/photos/batch/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids,
+        pipeline: {
+          adjust: { brightness: 1.1, saturation: 1.3 },
+          output: { format: 'webp', quality: 80 },
+        },
+        mode: 'copy',
+      }),
+    });
+    const jr = await r.json();
+    assert.equal(jr.ok, true);
+    assert.ok(jr.jobId, '应返回 jobId');
+    assert.equal(jr.total, 3);
+
+    const j = await waitJob(base, jr.jobId);
+    assert.equal(j.status, 'done');
+    assert.equal(j.done, 3, '任务应处理完全部条目');
+    assert.equal(j.results.length, 2, '两张有效照片应成功');
+    assert.equal(j.errors.length, 1, '不存在的 id 应被记录为错误且不影响其他照片');
+    assert.equal(j.errors[0].id, 'not-exist-id');
+
+    // 副本应写入存储且为 WebP
+    const copies = getDb().photos.filter(p => p.name.includes('_edited'));
+    assert.equal(copies.length, 2);
+    for (const c of copies) {
+      const filePath = path.join(dirs.uploads, c.file);
+      assert.ok(fs.existsSync(filePath), '副本文件应存在');
+      const meta = await sharp(filePath).metadata();
+      assert.equal(meta.format, 'webp');
+    }
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 批量处理覆盖原图模式直接替换文件', async () => {
+  const { srv, base, dirs, getDb } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'overwrite.jpg');
+    const id = up.added[0].id;
+    const origFile = getDb().photos.find(p => p.id === id).file;
+
+    const r = await fetch(`${base}/api/photos/batch/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids: [id],
+        pipeline: { output: { format: 'png' } },
+        mode: 'overwrite',
+      }),
+    });
+    const jr = await r.json();
+    const j = await waitJob(base, jr.jobId);
+    assert.equal(j.status, 'done');
+    assert.equal(getDb().photos.length, 1, '覆盖模式不应新增记录');
+    const now = getDb().photos[0];
+    const filePath = path.join(dirs.uploads, now.file);
+    assert.equal(now.id, id, 'id 保持不变');
+    const meta = await sharp(filePath).metadata();
+    assert.equal(meta.format, 'png', '原文件应被替换为 PNG');
+    assert.ok(!fs.existsSync(path.join(dirs.uploads, origFile)), '旧格式文件应被清理');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 批量任务取消接口语义正确', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const notFound = await fetch(`${base}/api/jobs/nope/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    assert.equal(notFound.status, 404);
+
+    // 对空选择启动任务应被拒绝
+    const bad = await fetch(`${base}/api/photos/batch/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [], pipeline: {} }),
+    });
+    assert.equal(bad.status, 400);
+
+    // 已结束任务再取消应返回 ok 且状态不变
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'c.jpg');
+    const r = await fetch(`${base}/api/photos/batch/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [up.added[0].id], pipeline: {}, mode: 'copy' }),
+    });
+    const jr = await r.json();
+    const done = await waitJob(base, jr.jobId);
+    assert.equal(done.status, 'done');
+    const cancel = await fetch(`${base}/api/jobs/${jr.jobId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const cj = await cancel.json();
+    assert.equal(cj.ok, true);
+    assert.equal(cj.status, 'done');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: hideReject 搜索参数排除被标记排除的照片', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const upA = await uploadJpeg(base, await makeNoiseJpeg(false), 'a.jpg');
+    const upB = await uploadJpeg(base, await makeNoiseJpeg(false), 'b.jpg');
+    await fetch(`${base}/api/photos/${upA.added[0].id}/flag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flag: 'reject' }),
+    });
+    const all = await (await fetch(`${base}/api/search`)).json();
+    assert.equal(all.length, 2);
+    const hidden = await (await fetch(`${base}/api/search?hideReject=1`)).json();
+    assert.equal(hidden.length, 1);
+    assert.notEqual(hidden[0].id, upA.added[0].id);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: autoAdvance 设置默认开启且可关闭', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const s0 = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(s0.autoAdvance, true, '默认应开启选片自动跳转');
+    const r = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoAdvance: false }),
+    });
+    const j = await r.json();
+    assert.equal(j.settings.autoAdvance, false);
+    const s1 = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(s1.autoAdvance, false);
   } finally {
     await closeServer(srv);
   }
