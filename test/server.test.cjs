@@ -9,6 +9,7 @@
  *  - 跨站表单请求（CSRF）
  *  - 扩展名/文件名净化
  *  - EXIF 中文读写
+ *  - 中文文件名上传不乱码、外部 UTF-16/GBK 中文 EXIF 读取不乱码
  *  - db.json 损坏恢复
  */
 const test = require('node:test');
@@ -332,6 +333,76 @@ test('HTTP: EXIF 中文读写 + 抹除', async () => {
     assert.equal(st.status, 200);
     const rd2 = await (await fetch(`${base}/api/photos/${id}/exif`)).json();
     assert.ok(!rd2.exif.Artist, '抹除后不应再读到作者');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 中文文件名上传后不再乱码', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), '我的旅行照片.jpg');
+    assert.ok(up.ok);
+    assert.equal(up.added.length, 1);
+    assert.equal(up.added[0].name, '我的旅行照片.jpg', '文件名应为正确中文而非 latin1 乱码');
+    const list = await (await fetch(`${base}/api/photos`)).json();
+    assert.equal(list[0].name, '我的旅行照片.jpg', '列表返回的文件名应一致');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 外部 UTF-16 / GBK 中文 EXIF 读取不再乱码', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const variants = {
+      // 相机 / Windows 软件常见写法：UTF-16LE 带 BOM
+      'utf16le': Buffer.from('\uFEFF' + '测试作者', 'utf16le').toString('latin1'),
+      // 国产软件常见写法：GBK 编码（测试作者 的 GBK 字节）
+      'gbk': Buffer.from([0xB2, 0xE2, 0xCA, 0xD4, 0xD7, 0xF7, 0xD5, 0xDF]).toString('latin1'),
+    };
+    for (const [label, raw] of Object.entries(variants)) {
+      const bin = (await makeNoiseJpeg(false)).toString('binary');
+      const withExif = Buffer.from(
+        piexif.insert(piexif.dump({ '0th': { [piexif.ImageIFD.Artist]: raw } }), bin),
+        'binary'
+      );
+      const up = await uploadJpeg(base, withExif, `${label}.jpg`);
+      assert.equal(up.added.length, 1, `${label} 应上传成功`);
+      const rd = await (await fetch(`${base}/api/photos/${up.added[0].id}/exif`)).json();
+      assert.equal(rd.exif.Artist, '测试作者', `${label} 作者应正确解码`);
+    }
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 启动时自动修正历史乱码文件名', async () => {
+  const d = tmpdir();
+  const dirs = {
+    uploads: path.join(d, 'uploads'),
+    thumbs: path.join(d, 'thumbs'),
+    data: path.join(d, 'data'),
+  };
+  fs.mkdirSync(dirs.data, { recursive: true });
+  const mojibake = Buffer.from('我的旅行照片.jpg', 'utf8').toString('latin1');
+  fs.writeFileSync(
+    path.join(dirs.data, 'db.json'),
+    JSON.stringify({ photos: [{ id: 'old1', name: mojibake, file: 'old1.jpg' }], albums: [] }),
+    'utf8'
+  );
+  const { app, getDb } = createAppServer({
+    port: 0,
+    dirs,
+    logDir: path.join(d, 'log'),
+    publicDir: path.join(ROOT, 'public'),
+    version: '1.0.7-test',
+  });
+  const srv = await new Promise(r => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  try {
+    assert.equal(getDb().photos[0].name, '我的旅行照片.jpg', '内存中的历史乱码名应已修正');
+    const saved = JSON.parse(fs.readFileSync(path.join(dirs.data, 'db.json'), 'utf8'));
+    assert.equal(saved.photos[0].name, '我的旅行照片.jpg', '修正后的名字应持久化回 db.json');
   } finally {
     await closeServer(srv);
   }

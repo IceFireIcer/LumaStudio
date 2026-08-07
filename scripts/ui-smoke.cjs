@@ -91,6 +91,26 @@ app.whenReady().then(async () => {
           } catch (e) { return 'keydown-error:' + e.message; }
         })()`);
         console.log('KEYDOWN ' + keydown);
+
+        // 卡片悬停布局：左上角复选框与像素尺寸角标不得重叠
+        // （曾因两条 .card .badge 规则互相覆盖，badge 被拉回 left:9px 与复选框重合）
+        const layout = await win.webContents.executeJavaScript(`(function(){
+          try {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.style.cssText = 'width:120px;height:120px;position:absolute;left:0;top:0';
+            card.innerHTML = '<div class="sel-check"></div><div class="badge">1920×1080</div>';
+            document.body.appendChild(card);
+            const ck = card.querySelector('.sel-check').getBoundingClientRect();
+            const bd = card.querySelector('.badge').getBoundingClientRect();
+            card.remove();
+            const overlap = !(bd.right <= ck.left || bd.left >= ck.right || bd.bottom <= ck.top || bd.top >= ck.bottom);
+            return 'layout-ok overlap=' + overlap +
+              ' check=' + JSON.stringify({ left: ck.left, top: ck.top, right: ck.right, bottom: ck.bottom }) +
+              ' badge=' + JSON.stringify({ left: bd.left, top: bd.top, right: bd.right, bottom: bd.bottom });
+          } catch (e) { return 'layout-error:' + e.message; }
+        })()`);
+        console.log('LAYOUT ' + layout);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }

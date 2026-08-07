@@ -51,6 +51,16 @@ function normalizeAngle(angle) {
   return ((snapped % 360) + 360) % 360;
 }
 
+// 浏览器以 UTF-8 原始字节发送 multipart 文件名，Node 的 HTTP 头按 latin1 解码，
+// 导致中文文件名变成乱码；这里把 latin1 字节串还原为 UTF-8（纯 ASCII 不受影响）。
+// 若还原结果含替换符 U+FFFD，说明原串本来就是正常文本（如合法的 Latin-1 字符），保持原样。
+function fixUploadName(raw) {
+  const s = String(raw || '');
+  if (!s || /^[\x00-\x7F]*$/.test(s)) return s;
+  const fixed = Buffer.from(s, 'latin1').toString('utf8');
+  return fixed.includes('\uFFFD') ? s : fixed;
+}
+
 /* ============ 日志系统 ============ */
 function formatLocalTime(date = new Date()) {
   const pad = (n, w = 2) => String(n).padStart(w, '0');
@@ -480,8 +490,107 @@ function loadTiffFromChunk(data) {
   }
 }
 
+/* ---------- EXIF 文本标签智能解码（兼容 UTF-8 / UTF-16 / GBK） ----------
+ * piexif.load 按 ASCII 逐字节读字符串，遇到 NUL 即截断；exifr 也只按 null 猜测 UTF-16，
+ * 外部软件写入的 UTF-16 / GBK 中文（Windows、相机、国产图床等常见）都会读成乱码。
+ * 因此文本标签直接从 TIFF 字节读取，按 BOM → 严格 UTF-8 → GBK 的顺序解码。
+ */
+function decodeExifText(bytes) {
+  if (!bytes || !bytes.length) return '';
+  let b = bytes;
+  while (b.length && b[b.length - 1] === 0) b = b.subarray(0, b.length - 1); // 去掉末尾 NUL 填充
+  if (!b.length) return '';
+  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(b.subarray(2)).replace(/\u0000+$/, '');
+  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(b.subarray(2)).replace(/\u0000+$/, '');
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(b);
+  } catch { /* 非 UTF-8，继续尝试 GBK */ }
+  try {
+    return new TextDecoder('gbk').decode(b);
+  } catch { /* 环境不支持 GBK 时按 latin1 原样返回 */ }
+  return b.toString('latin1');
+}
+
+const EXIF_TEXT_TAGS_IFD0 = {
+  0x010E: 'ImageDescription',
+  0x010F: 'Make',
+  0x0110: 'Model',
+  0x0131: 'Software',
+  0x013B: 'Artist',
+  0x8298: 'Copyright',
+};
+const EXIF_TEXT_TAGS_EXIF = {
+  0x9003: 'DateTimeOriginal',
+};
+const EXIF_TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
+
+// 解析 TIFF 结构中的文本标签；data 可以是带 'Exif\0\0' 前缀的 chunk 数据或裸 TIFF
+function readTiffTextTags(data) {
+  const out = {};
+  if (!data || data.length < 8) return out;
+  const prefix = Buffer.from('Exif\0\0', 'binary');
+  const tiff = data.length >= 6 && data.subarray(0, 6).equals(prefix) ? data.subarray(6) : data;
+  if (tiff.length < 8) return out;
+  const isLE = tiff[0] === 0x49 && tiff[1] === 0x49; // 'II'
+  if (!isLE && !(tiff[0] === 0x4D && tiff[1] === 0x4D)) return out; // 既非 II 也非 MM
+  const u16 = o => isLE ? tiff.readUInt16LE(o) : tiff.readUInt16BE(o);
+  const u32 = o => isLE ? tiff.readUInt32LE(o) : tiff.readUInt32BE(o);
+  if (u16(2) !== 42) return out;
+  const readIfd = (off, tagMap) => {
+    if (off < 0 || off + 2 > tiff.length) return null;
+    const count = u16(off);
+    const found = {};
+    for (let i = 0; i < count; i++) {
+      const e = off + 2 + i * 12;
+      if (e + 12 > tiff.length) break;
+      const tag = u16(e);
+      const type = u16(e + 2);
+      const n = u32(e + 4);
+      const byteLen = (EXIF_TYPE_SIZE[type] || 0) * n;
+      if (!byteLen || n > 0x10000) continue;
+      if (tag === 0x8769 && byteLen === 4) found.exifPtr = u32(e + 8);
+      if (!tagMap[tag]) continue;
+      const valueOff = byteLen <= 4 ? e + 8 : u32(e + 8);
+      if (valueOff < 0 || valueOff + byteLen > tiff.length) continue;
+      if (type === 2 || type === 7 || type === 1) {
+        const s = decodeExifText(tiff.subarray(valueOff, valueOff + byteLen));
+        if (s) found[tagMap[tag]] = s;
+      }
+    }
+    return found;
+  };
+  const ifd0 = readIfd(u32(4), EXIF_TEXT_TAGS_IFD0) || {};
+  Object.assign(out, ifd0);
+  if (ifd0.exifPtr) Object.assign(out, readIfd(ifd0.exifPtr, EXIF_TEXT_TAGS_EXIF) || {});
+  return out;
+}
+
+// 从图片文件字节中取出 EXIF 的 TIFF 段（JPEG APP1 / PNG eXIf / WebP EXIF）
+function extractExifTiff(buf, ext) {
+  if (ext === '.jpg' || ext === '.jpeg') {
+    let pos = 2; // 跳过 SOI
+    while (pos + 4 <= buf.length) {
+      if (buf[pos] !== 0xFF) { pos++; continue; }
+      const marker = buf[pos + 1];
+      if (marker === 0xFF) { pos += 2; continue; } // 填充字节
+      if (marker === 0xD8 || marker === 0xD9 || marker === 0xDA) break; // SOI/EOI/SOS
+      const segLen = buf.readUInt16BE(pos + 2);
+      if (segLen < 2 || pos + 2 + segLen > buf.length) break;
+      if (marker === 0xE1) {
+        const payload = buf.subarray(pos + 4, pos + 2 + segLen);
+        if (payload.length >= 6 && payload.toString('ascii', 0, 6) === 'Exif\0\0') return payload.subarray(6);
+      }
+      pos += 2 + segLen;
+    }
+    return null;
+  }
+  if (ext === '.png') return readPngExif(buf);
+  if (ext === '.webp') return readWebpExif(buf);
+  return null;
+}
+
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.7', isElectron = false }) {
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.8', isElectron = false }) {
   sharp.cache(false);
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const { logger, LOG_FILE, LOG_DIR } = createLogger(logDir);
@@ -491,12 +600,19 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.7', isE
 
   let db = loadJSON(DB_FILE, { photos: [], albums: [] });
   if (!db.albums) db.albums = [];
+  let nameMigrated = false;
   for (const p of db.photos) {
     if (p.stars == null) p.stars = 0;
     if (p.flag == null) p.flag = null;
+    // 修复旧版本按 latin1 误存的中文文件名（仅处理可疑的乱码串，正常 Unicode 名不受影响）
+    if (p.name && p.name !== fixUploadName(p.name)) {
+      p.name = fixUploadName(p.name);
+      nameMigrated = true;
+    }
   }
   let settings = sanitizeSettings(loadJSON(SETTINGS_FILE, DEFAULT_SETTINGS));
   const persistDB = () => saveJSONAtomic(DB_FILE, db);
+  if (nameMigrated) persistDB();
   const persistSettings = () => saveJSONAtomic(SETTINGS_FILE, settings);
 
   const DIRS = dirs;
@@ -589,15 +705,16 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.7', isE
     for (const f of req.files) {
       let dest = null;
       let id = null;
+      const original = fixUploadName(f.originalname);
       try {
         if (!IMAGE_MIME.test(f.mimetype)) {
-          errors.push(`${f.originalname}: 不支持的图片类型`);
+          errors.push(`${original}: 不支持的图片类型`);
           continue;
         }
-        const rawExt = String(f.originalname).split('.').pop() || '';
+        const rawExt = String(original).split('.').pop() || '';
         const safeExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '');
         if (!ALLOWED_EXT.has(safeExt)) {
-          errors.push(`${f.originalname}: 不支持的文件扩展名`);
+          errors.push(`${original}: 不支持的文件扩展名`);
           continue;
         }
         id = nanoid(10);
@@ -614,13 +731,13 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.7', isE
           dest = finalPath;
         }
         await makeThumb(dest, id, settings.thumbSize, DIRS.thumbs);
-        const meta = await buildMeta(dest, id, f.originalname);
+        const meta = await buildMeta(dest, id, original);
         db.photos.push(meta);
         out.push(meta);
       } catch (e) {
         if (dest) { try { await fsp.rm(dest, { force: true }); } catch { /* 忽略 */ } }
         if (id) { try { await fsp.rm(path.join(DIRS.thumbs, `${id}.webp`), { force: true }); } catch { /* 忽略 */ } }
-        errors.push(`${f.originalname}: ${e.message}`);
+        errors.push(`${original}: ${e.message}`);
       }
     }
     if (out.length) persistDB();
@@ -658,38 +775,12 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.7', isE
     try {
       const data = await exifr.parse(full, { tiff: true, exif: true, gps: true, ifd0: true }).catch(() => null) || {};
       const ext = path.extname(full).toLowerCase();
-      const dec = raw => {
-        if (raw == null) return undefined;
-        const s = String(raw).replace(/\u0000+$/, '');
-        if (!s) return undefined;
-        return Buffer.from(s, 'latin1').toString('utf8');
-      };
-      const mergePiexif = (exifObj) => {
-        const z = exifObj['0th'] || {};
-        const ex = exifObj['Exif'] || {};
-        const m = {
-          Artist: z[piexif.ImageIFD.Artist],
-          Copyright: z[piexif.ImageIFD.Copyright],
-          ImageDescription: z[piexif.ImageIFD.ImageDescription],
-          Software: z[piexif.ImageIFD.Software],
-          DateTimeOriginal: ex[piexif.ExifIFD.DateTimeOriginal],
-        };
-        for (const [k, v] of Object.entries(m)) {
-          if (v != null && v !== '') { const d = dec(v); if (d) data[k] = d; }
-        }
-      };
-      if (['.jpg', '.jpeg'].includes(ext)) {
+      // 文本标签统一从 TIFF 字节解析（兼容 UTF-8 / UTF-16 / GBK，piexif/exifr 对后两者常读成乱码）
+      if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
         try {
-          const bin = fs.readFileSync(full).toString('binary');
-          const obj = piexif.load(bin);
-          mergePiexif(obj);
+          const tiff = extractExifTiff(fs.readFileSync(full), ext);
+          if (tiff) Object.assign(data, readTiffTextTags(tiff));
         } catch { /* 沿用 exifr 结果 */ }
-      } else if (ext === '.png' || ext === '.webp') {
-        // exifr 的 Node 版不解析 WebP EXIF，PNG 也统一走 chunk 解析保证字段一致
-        const bin = fs.readFileSync(full);
-        const chunk = ext === '.png' ? readPngExif(bin) : readWebpExif(bin);
-        const obj = loadTiffFromChunk(chunk);
-        if (obj) mergePiexif(obj);
       }
       res.json({ ok: true, exif: data });
     } catch {
@@ -1054,5 +1145,9 @@ module.exports = {
   readWebpChunks,
   readWebpExif,
   writeWebpExif,
+  decodeExifText,
+  readTiffTextTags,
+  extractExifTiff,
+  fixUploadName,
   DEFAULT_SETTINGS,
 };

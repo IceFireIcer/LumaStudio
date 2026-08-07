@@ -119,10 +119,9 @@ body{
   padding:2px 8px;border-radius:980px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:1}
 .card:hover .flag-badge,.card .flag-badge.show{opacity:1}
 .flag-badge.pick{background:#34c759;color:#fff}.flag-badge.reject{background:#ff3b30;color:#fff}
-.card .badge{top:9px;left:38px}
 .card.removing{animation:shrink .35s forwards}
 @keyframes shrink{to{transform:scale(.6);opacity:0}}
-.card .badge{position:absolute;top:9px;left:9px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;
+.card .badge{position:absolute;top:9px;left:38px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;
   padding:3px 7px;border-radius:6px;backdrop-filter:blur(4px);opacity:0;transition:opacity .3s}
 .card:hover .badge{opacity:1}
 

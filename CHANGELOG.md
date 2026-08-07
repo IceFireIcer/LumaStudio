@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.0.8
+
+### 中文
+- 修复导入中文文件名照片后名称乱码的问题（multipart 文件名按 UTF-8 重新解码；启动时自动修正历史乱码文件名）
+- 修复外部照片中文 EXIF（作者/版权/描述/软件等）在 UTF-16 / GBK 编码下读取乱码的问题（按 BOM / UTF-8 / GBK 智能解码）
+- 修复网格卡片悬停时左上角复选框与像素尺寸角标重叠的问题
+
+### English
+- Fixed garbled Chinese file names on import (multipart filenames are re-decoded as UTF-8; existing mojibake names are auto-fixed on startup)
+- Fixed garbled Chinese EXIF text (Artist/Copyright/Description/Software) from external photos encoded as UTF-16 or GBK (now decoded via BOM/UTF-8/GBK detection)
+- Fixed the pixel-size badge overlapping the selection checkbox on card hover
+
+### Release Assets
+- `Luma Studio Setup 1.0.8.exe` — Windows installer, recommended for most users
+- `Luma Studio 1.0.8.exe` — Windows portable build, recommended for direct use without installation
+
+### Notes
+- This release fixes Chinese text garbling (file names and EXIF metadata from external tools) and the card hover badge/checkbox overlap.
+
+---
+
 ## v1.0.7
 
 ### 中文
