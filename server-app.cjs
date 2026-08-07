@@ -316,8 +316,172 @@ function sanitizeZipName(name) {
   return s || 'photo';
 }
 
+/* ---------- PNG / WebP EXIF 写入（无损 chunk 级，不重新编码像素） ---------- */
+let CRC_TABLE = null;
+function crc32(buf) {
+  if (!CRC_TABLE) {
+    CRC_TABLE = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      CRC_TABLE[n] = c;
+    }
+  }
+  let crc = -1;
+  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ buf[i]) & 0xFF];
+  return (crc ^ -1) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, 4, 'ascii');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+  return Buffer.concat([head, data, crc]);
+}
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+function readPngExif(buf) {
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  let pos = 8;
+  while (pos + 8 <= buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString('ascii', pos + 4, pos + 8);
+    if (pos + 8 + len > buf.length) return null;
+    if (type === 'eXIf') return buf.subarray(pos + 8, pos + 8 + len);
+    if (type === 'IEND') return null;
+    pos += 12 + len;
+  }
+  return null;
+}
+
+function writePngExif(buf, tiff) {
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  const parts = [buf.subarray(0, 8)];
+  let pos = 8;
+  let done = false;
+  while (pos + 8 <= buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString('ascii', pos + 4, pos + 8);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
+    if (data.length !== len) return null;
+    if (type === 'IEND') {
+      if (!done) parts.push(pngChunk('eXIf', tiff));
+      parts.push(pngChunk('IEND', data));
+      done = true;
+      break;
+    }
+    parts.push(type === 'eXIf' ? pngChunk('eXIf', tiff) : pngChunk(type, data));
+    if (type === 'eXIf') done = true;
+    pos += 12 + len;
+  }
+  if (!done) return null;
+  return Buffer.concat(parts);
+}
+
+function readWebpChunks(buf) {
+  if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WEBP') return null;
+  const chunks = [];
+  let pos = 12;
+  while (pos + 8 <= buf.length) {
+    const type = buf.toString('ascii', pos, pos + 4);
+    const len = buf.readUInt32LE(pos + 4);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
+    if (data.length !== len) return null;
+    chunks.push({ type, data });
+    pos += 8 + len + (len & 1);
+  }
+  return chunks;
+}
+
+function readWebpExif(buf) {
+  const chunks = readWebpChunks(buf);
+  if (!chunks) return null;
+  const ex = chunks.find(c => c.type === 'EXIF');
+  return ex ? ex.data : null;
+}
+
+function webpCanvasSize(chunk) {
+  const d = chunk.data;
+  if (chunk.type === 'VP8L' && d.length >= 5 && d[0] === 0x2F) {
+    return {
+      width: 1 + (d[1] | ((d[2] & 0x3F) << 8)),
+      height: 1 + ((d[2] >> 6) | (d[3] << 2) | ((d[4] & 0x0F) << 10)),
+    };
+  }
+  if (chunk.type === 'VP8 ' && d.length >= 10 && d[3] === 0x9D && d[4] === 0x01 && d[5] === 0x2A) {
+    return {
+      width: (d[6] | (d[7] << 8)) & 0x3FFF,
+      height: (d[8] | (d[9] << 8)) & 0x3FFF,
+    };
+  }
+  return null;
+}
+
+function writeWebpExif(buf, tiff) {
+  const chunks = readWebpChunks(buf);
+  if (!chunks) return null;
+  const next = [];
+  let replaced = false;
+  for (const c of chunks) {
+    if (c.type === 'EXIF') { next.push({ type: 'EXIF', data: tiff }); replaced = true; }
+    else next.push(c);
+  }
+  if (!replaced) {
+    const vp8x = next.find(c => c.type === 'VP8X');
+    if (vp8x) {
+      const nd = Buffer.from(vp8x.data);
+      nd[0] = (nd[0] || 0) | 0x08; // 设置 EXIF 标志位
+      const idx = next.indexOf(vp8x);
+      next[idx] = { type: 'VP8X', data: nd };
+    } else {
+      const img = next.find(c => c.type === 'VP8 ' || c.type === 'VP8L' || c.type === 'ANIM' || c.type === 'ANMF');
+      const dims = img && webpCanvasSize(img);
+      if (!img || !dims) return null;
+      const vp8xData = Buffer.alloc(10);
+      vp8xData[0] = 0x08;
+      // 画布尺寸为 24 位小端（RIFF 约定），与 libwebp 输出一致
+      const cw = dims.width - 1;
+      const ch = dims.height - 1;
+      vp8xData[4] = cw & 0xFF; vp8xData[5] = (cw >> 8) & 0xFF; vp8xData[6] = (cw >> 16) & 0xFF;
+      vp8xData[7] = ch & 0xFF; vp8xData[8] = (ch >> 8) & 0xFF; vp8xData[9] = (ch >> 16) & 0xFF;
+      next.unshift({ type: 'VP8X', data: vp8xData });
+    }
+    // EXIF chunk 放在图像数据之后（与 libwebp/sharp 的输出顺序一致）
+    next.push({ type: 'EXIF', data: tiff });
+  }
+  const body = [];
+  for (const c of next) {
+    const h = Buffer.alloc(8);
+    h.write(c.type, 0, 4, 'ascii');
+    h.writeUInt32LE(c.data.length, 4);
+    body.push(h, c.data);
+    if (c.data.length & 1) body.push(Buffer.from([0]));
+  }
+  const bodyBuf = Buffer.concat(body);
+  const header = Buffer.alloc(12);
+  header.write('RIFF', 0, 4, 'ascii');
+  header.writeUInt32LE(4 + bodyBuf.length, 4);
+  header.write('WEBP', 8, 4, 'ascii');
+  return Buffer.concat([header, bodyBuf]);
+}
+
+// 从 PNG eXIf / WebP EXIF chunk 的裸 TIFF 数据加载 EXIF 对象（保留已有字段）
+function loadTiffFromChunk(data) {
+  if (!data) return null;
+  try {
+    const prefix = Buffer.from('Exif\0\0', 'binary');
+    const hasPrefix = data.length >= 6 && data.subarray(0, 6).equals(prefix);
+    return piexif.load(hasPrefix ? data.toString('binary') : prefix.toString('binary') + data.toString('binary'));
+  } catch {
+    return null;
+  }
+}
+
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.6', isElectron = false }) {
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.7', isElectron = false }) {
   sharp.cache(false);
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const { logger, LOG_FILE, LOG_DIR } = createLogger(logDir);
@@ -494,29 +658,38 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.6', isE
     try {
       const data = await exifr.parse(full, { tiff: true, exif: true, gps: true, ifd0: true }).catch(() => null) || {};
       const ext = path.extname(full).toLowerCase();
+      const dec = raw => {
+        if (raw == null) return undefined;
+        const s = String(raw).replace(/\u0000+$/, '');
+        if (!s) return undefined;
+        return Buffer.from(s, 'latin1').toString('utf8');
+      };
+      const mergePiexif = (exifObj) => {
+        const z = exifObj['0th'] || {};
+        const ex = exifObj['Exif'] || {};
+        const m = {
+          Artist: z[piexif.ImageIFD.Artist],
+          Copyright: z[piexif.ImageIFD.Copyright],
+          ImageDescription: z[piexif.ImageIFD.ImageDescription],
+          Software: z[piexif.ImageIFD.Software],
+          DateTimeOriginal: ex[piexif.ExifIFD.DateTimeOriginal],
+        };
+        for (const [k, v] of Object.entries(m)) {
+          if (v != null && v !== '') { const d = dec(v); if (d) data[k] = d; }
+        }
+      };
       if (['.jpg', '.jpeg'].includes(ext)) {
         try {
           const bin = fs.readFileSync(full).toString('binary');
           const obj = piexif.load(bin);
-          const dec = raw => {
-            if (raw == null) return undefined;
-            const s = String(raw).replace(/\u0000+$/, '');
-            if (!s) return undefined;
-            return Buffer.from(s, 'latin1').toString('utf8');
-          };
-          const z = obj['0th'] || {};
-          const ex = obj['Exif'] || {};
-          const m = {
-            Artist: z[piexif.ImageIFD.Artist],
-            Copyright: z[piexif.ImageIFD.Copyright],
-            ImageDescription: z[piexif.ImageIFD.ImageDescription],
-            Software: z[piexif.ImageIFD.Software],
-            DateTimeOriginal: ex[piexif.ExifIFD.DateTimeOriginal],
-          };
-          for (const [k, v] of Object.entries(m)) {
-            if (v != null && v !== '') { const d = dec(v); if (d) data[k] = d; }
-          }
+          mergePiexif(obj);
         } catch { /* 沿用 exifr 结果 */ }
+      } else if (ext === '.png' || ext === '.webp') {
+        // exifr 的 Node 版不解析 WebP EXIF，PNG 也统一走 chunk 解析保证字段一致
+        const bin = fs.readFileSync(full);
+        const chunk = ext === '.png' ? readPngExif(bin) : readWebpExif(bin);
+        const obj = loadTiffFromChunk(chunk);
+        if (obj) mergePiexif(obj);
       }
       res.json({ ok: true, exif: data });
     } catch {
@@ -524,22 +697,25 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.6', isE
     }
   }));
 
-  /* ---------- EXIF 写入（仅 JPEG） ---------- */
+  /* ---------- EXIF 写入（JPEG / PNG / WebP） ---------- */
   app.post('/api/photos/:id/exif', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
     const full = path.join(DIRS.uploads, p.file);
     const ext = path.extname(full).toLowerCase();
-    if (!['.jpg', '.jpeg'].includes(ext)) {
-      return res.status(400).json({ error: 'EXIF 写入仅支持 JPEG 格式' });
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+      return res.status(400).json({ error: 'EXIF 写入仅支持 JPEG / PNG / WebP 格式' });
     }
     const slice = v => String(v == null ? '' : v).slice(0, 255);
     const { artist, copyright, description, datetime, software } = req.body || {};
     const enc = s => Buffer.from(String(s), 'utf8').toString('latin1');
-    const binary = fs.readFileSync(full).toString('binary');
+    const bin = fs.readFileSync(full);
+    const binary = bin.toString('binary');
     let exifObj;
-    try { exifObj = piexif.load(binary); }
-    catch { exifObj = { '0th': {}, Exif: {}, GPS: {}, '1st': {}, thumbnail: null }; }
+    if (ext === '.png') exifObj = loadTiffFromChunk(readPngExif(bin));
+    else if (ext === '.webp') exifObj = loadTiffFromChunk(readWebpExif(bin));
+    else { try { exifObj = piexif.load(binary); } catch { exifObj = null; } }
+    if (!exifObj) exifObj = { '0th': {}, Exif: {}, GPS: {}, '1st': {}, thumbnail: null };
     if (artist !== undefined) exifObj['0th'][piexif.ImageIFD.Artist] = enc(slice(artist));
     if (copyright !== undefined) exifObj['0th'][piexif.ImageIFD.Copyright] = enc(slice(copyright));
     if (description !== undefined) exifObj['0th'][piexif.ImageIFD.ImageDescription] = enc(slice(description));
@@ -548,7 +724,17 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.0.6', isE
       exifObj['0th'][piexif.ImageIFD.DateTime] = slice(datetime);
       exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = slice(datetime);
     }
-    fs.writeFileSync(full, Buffer.from(piexif.insert(piexif.dump(exifObj), binary), 'binary'));
+    if (ext === '.png') {
+      const out = writePngExif(bin, Buffer.from(piexif.dump(exifObj), 'binary'));
+      if (!out) return res.status(400).json({ error: 'PNG 结构无法写入 EXIF' });
+      fs.writeFileSync(full, out);
+    } else if (ext === '.webp') {
+      const out = writeWebpExif(bin, Buffer.from(piexif.dump(exifObj), 'binary'));
+      if (!out) return res.status(400).json({ error: 'WebP 结构无法写入 EXIF' });
+      fs.writeFileSync(full, out);
+    } else {
+      fs.writeFileSync(full, Buffer.from(piexif.insert(piexif.dump(exifObj), binary), 'binary'));
+    }
     res.json({ ok: true });
   }));
 
@@ -863,5 +1049,10 @@ module.exports = {
   sanitizeSettings,
   sanitizeZipName,
   normalizeAngle,
+  readPngExif,
+  writePngExif,
+  readWebpChunks,
+  readWebpExif,
+  writeWebpExif,
   DEFAULT_SETTINGS,
 };

@@ -26,6 +26,8 @@ const {
   sanitizeSettings,
   sanitizeZipName,
   normalizeAngle,
+  readPngExif,
+  readWebpExif,
 } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -90,7 +92,7 @@ function startServer() {
     dirs,
     logDir: path.join(d, 'log'),
     publicDir: path.join(ROOT, 'public'),
-    version: '1.0.5-test',
+    version: '1.0.7-test',
   });
   return new Promise(resolve => {
     const srv = app.listen(0, '127.0.0.1', () => {
@@ -335,6 +337,58 @@ test('HTTP: EXIF 中文读写 + 抹除', async () => {
   }
 });
 
+test('HTTP: PNG / WebP EXIF 无损写入与读取', async () => {
+  const { srv, base, dirs, getDb } = await startServer();
+  try {
+    const raw = makeFixture();
+    const png = await sharp(raw, { raw: { width: 200, height: 100, channels: 3 } }).png().toBuffer();
+    const webp = await sharp(raw, { raw: { width: 200, height: 100, channels: 3 } }).webp({ quality: 90 }).toBuffer();
+
+    const upPng = await uploadJpeg(base, png, 'a.png');
+    const upWebp = await uploadJpeg(base, webp, 'b.webp');
+    assert.equal(upPng.added.length, 1, 'PNG 应上传成功');
+    assert.equal(upWebp.added.length, 1, 'WebP 应上传成功');
+    const pngId = upPng.added[0].id;
+    const webpId = upWebp.added[0].id;
+
+    for (const id of [pngId, webpId]) {
+      const w = await fetch(`${base}/api/photos/${id}/exif`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artist: '张三',
+          copyright: '©测试',
+          description: 'PNG/WebP 描述',
+          datetime: '2026:08:07 12:00:00',
+        }),
+      });
+      assert.equal(w.status, 200, `EXIF 写入应成功 (${id})`);
+    }
+
+    for (const [id, label, fmt] of [[pngId, 'PNG', 'png'], [webpId, 'WebP', 'webp']]) {
+      const g = await (await fetch(`${base}/api/photos/${id}/exif`)).json();
+      const ex = g.exif || {};
+      assert.equal(ex.Artist, '张三', `${label} 作者`);
+      assert.equal(ex.Copyright, '©测试', `${label} 版权`);
+      assert.equal(ex.ImageDescription, 'PNG/WebP 描述', `${label} 描述`);
+
+      // 写入后文件仍能被 sharp 解码，像素尺寸不变（未重编码）
+      const meta = getDb().photos.find(p => p.id === id);
+      const fileBuf = fs.readFileSync(path.join(dirs.uploads, meta.file));
+      const m = await sharp(fileBuf).metadata();
+      assert.equal(m.format, fmt, `${label} 格式保持`);
+      assert.equal(m.width, 200, `${label} 宽度保持`);
+      assert.equal(m.height, 100, `${label} 高度保持`);
+
+      // 绕过 API 读取路径，直接验证文件内存在 EXIF chunk（无损写入，未重编码）
+      const chunk = fmt === 'png' ? readPngExif(fileBuf) : readWebpExif(fileBuf);
+      assert.ok(chunk && chunk.length > 0, `${label} 应包含 EXIF chunk`);
+    }
+  } finally {
+    await closeServer(srv);
+  }
+});
+
 test('HTTP: db.json 损坏时自动备份并回退', async () => {
   const d = tmpdir();
   const dirs = {
@@ -348,7 +402,7 @@ test('HTTP: db.json 损坏时自动备份并回退', async () => {
     port: 0,
     dirs,
     logDir: path.join(d, 'log'),
-    version: '1.0.5-test',
+    version: '1.0.7-test',
   });
   const srv = await new Promise(resolve => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));

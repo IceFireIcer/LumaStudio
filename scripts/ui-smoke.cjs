@@ -23,7 +23,7 @@ app.whenReady().then(async () => {
     dirs,
     logDir: path.join(d, 'log'),
     publicDir: path.join(ROOT, 'public'),
-    version: '1.0.5-smoke',
+    version: '1.0.7-smoke',
   });
 
   const server = serverApp.listen(0, '127.0.0.1', async () => {
@@ -36,11 +36,14 @@ app.whenReady().then(async () => {
       webPreferences: { nodeIntegration: false, contextIsolation: true },
     });
 
-    win.webContents.on('console-message', (eventOrLevel, maybeLevel, maybeMsg) => {
-      const ev = eventOrLevel && typeof eventOrLevel === 'object' ? eventOrLevel : null;
-      const level = ev ? ev.level : maybeLevel;
-      const message = ev ? ev.message : maybeMsg;
-      if (level >= 2) errors.push(String(message));
+    win.webContents.on('console-message', (ev) => {
+      // Electron 32+：单个事件对象参数，level 为字符串（'info'/'warning'/'error'/'debug'）
+      const level = ev.level;
+      const message = ev.message;
+      const isError = typeof level === 'number'
+        ? level >= 2
+        : ['error', 'warning'].includes(String(level || '').toLowerCase());
+      if (isError) errors.push(String(message));
     });
     win.webContents.on('did-fail-load', (e, code, desc) => {
       errors.push(`did-fail-load ${code} ${desc}`);
@@ -79,6 +82,15 @@ app.whenReady().then(async () => {
           } catch (e) { return 'modal-error:' + e.message; }
         })()`);
         console.log('MODAL ' + modal);
+
+        // 键盘事件必须不抛异常（曾因引用不存在的 #editor 元素导致全部快捷键失效）
+        const keydown = await win.webContents.executeJavaScript(`(function(){
+          try {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: '5', bubbles: true }));
+            return 'keydown-ok';
+          } catch (e) { return 'keydown-error:' + e.message; }
+        })()`);
+        console.log('KEYDOWN ' + keydown);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }

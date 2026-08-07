@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.0.7
+
+### 中文
+- 相册改为瀑布流布局（GSAP 驱动，卡片按图片原始比例显示，DOM 顺序与灯箱/幻灯片保持一致，支持"减弱动态效果"偏好）
+- 便携版数据目录跟随 exe（数据存到 exe 旁 storage/，首次运行自动复制 %APPDATA% 中的已有数据；exe 目录不可写时自动回退 userData 并记录日志）
+- 批量评分与"加入收藏夹"改用自定义模态框（评分带 0-5 校验，收藏夹改为点选而非手输编号）
+- 收藏夹详情页新增空状态提示
+- EXIF 编辑扩展至 PNG / WebP（无损 chunk 级写入，保留原有其他 EXIF 字段，读取同样支持）
+- 修复键盘快捷键全部失效的问题（误引用不存在的 #editor 元素导致撤销/重做、评分、标记、幻灯片快捷键不可用）
+- 修复编辑器"重置全部"未重置旋转/翻转/裁剪的问题
+- 修复 UI 冒烟测试无法捕获渲染进程错误的问题（兼容 Electron 32+ console-message 事件），并新增键盘事件检查
+
+### English
+- Library now uses a masonry layout (GSAP-driven, cards keep the original image ratio; DOM order stays aligned with lightbox/slideshow; supports prefers-reduced-motion)
+- Portable build now stores data next to the exe (exe-side storage/); on first run it copies existing data from %APPDATA%; falls back to userData with a log warning when the exe directory is not writable
+- Batch rating and "add to album" now use the custom modal system (rating validated 0-5, album picked by clicking instead of typing an index)
+- Added an empty state for album detail pages
+- EXIF editing extended to PNG / WebP (lossless chunk-level write, preserves other EXIF fields; reading supported too)
+- Fixed all keyboard shortcuts being broken (a reference to a non-existent #editor element threw on every keydown)
+- Fixed the editor "Reset All" button not resetting rotation/flip/crop
+- Fixed the UI smoke test not capturing renderer errors (Electron 32+ console-message compatibility) and added a keydown check
+
+### Release Assets
+- `Luma Studio Setup 1.0.7.exe` — Windows installer, recommended for most users
+- `Luma Studio 1.0.7.exe` — Windows portable build, recommended for direct use without installation
+
+### Notes
+- This release focuses on completing previously unimplemented features (masonry, portable data, batch modals, PNG/WebP EXIF) plus keyboard and reset fixes.
+
+---
+
 ## v1.0.6
 
 ### 中文

@@ -258,7 +258,7 @@
           <h2>元数据信息</h2>
           <div class="exif-list" id="exifList"></div>
           <div class="divider"></div>
-          <h3>编辑字段 <small>(仅 JPEG)</small></h3>
+          <h3>编辑字段 <small>(仅 JPEG / PNG / WebP)</small></h3>
           <label class="field"><span>作者</span><input id="exArtist" placeholder="拍摄者 / 作者"></label>
           <label class="field"><span>版权</span><input id="exCopyright" placeholder="© ..."></label>
           <label class="field"><span>描述</span><input id="exDesc" placeholder="图片说明"></label>
@@ -342,6 +342,10 @@
           </div>
         </div>
         <div class="grid" id="albumGrid"></div>
+        <div class="empty" id="albumEmpty" style="display: none;">
+          <div class="empty-ico">📁</div>
+          <p>这个收藏夹还没有照片，去相册里选几张吧</p>
+        </div>
       </div>
     </section>
 
@@ -365,7 +369,7 @@
           <span class="about-logo">📷</span>
           <h2>Luma Studio</h2>
           <p class="about-tagline">光影工作室 · 图片查看与编辑</p>
-          <span class="about-ver" id="aboutVer">v1.0.5</span>
+          <span class="about-ver" id="aboutVer">v1.0.7</span>
         </div>
         <div class="about-section">
           <h3>简介</h3>
@@ -490,6 +494,22 @@
       <div class="modal-footer">
         <button class="btn ghost" id="inputModalCancel">取消</button>
         <button class="btn primary" id="inputModalConfirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用选择模态框 -->
+  <div class="modal" id="selectModal" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="selectModalTitle">选择</h3>
+      </div>
+      <div class="modal-body">
+        <div class="select-options" id="selectOptions"></div>
+        <div class="modal-hint" id="selectModalHint"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn ghost" id="selectModalCancel">取消</button>
       </div>
     </div>
   </div>

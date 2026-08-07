@@ -18,7 +18,8 @@
     /* 网格卡片入场：批量 stagger，避免逐个创建 tween */
     gridIn(cards) {
       if (!cards || !cards.length) return;
-      if (reduce) { gsap.set(cards, { clearProps: 'all' }); return; }
+      // 减弱动效偏好下不播放入场动画；瀑布流定位已由 layoutMasonry 完成
+      if (reduce) return;
       gsap.from(cards, {
         y: 22,
         autoAlpha: 0,
@@ -26,6 +27,8 @@
         ease: EASE,
         stagger: { each: 0.04, from: 'start' },
         overwrite: 'auto',
+        // 结束后清除内联 transform，恢复 CSS hover 上浮/放大效果
+        clearProps: 'transform',
       });
     },
 

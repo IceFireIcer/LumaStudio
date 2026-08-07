@@ -85,6 +85,43 @@ async function loadAlbums(){
   renderAlbums();
 }
 
+/* ============ 瀑布流布局 ============
+ * GSAP 可用时启用：短列优先分配，DOM 顺序 = 视觉顺序（灯箱/幻灯片索引保持一致）。
+ * 定位用 left/top（静态布局），入场动画由 UIAnim.gridIn 用 transform 完成。
+ */
+const GRID_GAP = 18;
+let masonryRoot = null;
+let masonryCards = [];
+
+function layoutMasonry(root, cards){
+  masonryRoot = root;
+  masonryCards = cards;
+  if(!root || !cards.length){ if(root) root.style.height = ''; return; }
+  if(!window.gsap) return; // 无 GSAP 时保持原 CSS 网格
+  const width = root.clientWidth;
+  const minCol = 200;
+  const cols = Math.max(1, Math.min(8, Math.floor((width + GRID_GAP) / (minCol + GRID_GAP))));
+  const colW = (width - GRID_GAP * (cols - 1)) / cols;
+  const heights = new Array(cols).fill(0);
+  cards.forEach(card => {
+    const ratio = parseFloat(card.dataset.ratio || '1') || 1;
+    const h = Math.round(colW * ratio);
+    let col = 0;
+    for(let c = 1; c < cols; c++) if(heights[c] < heights[col]) col = c;
+    card.style.left = (col * (colW + GRID_GAP)) + 'px';
+    card.style.top = heights[col] + 'px';
+    card.style.width = colW + 'px';
+    heights[col] += h + GRID_GAP;
+  });
+  root.style.height = Math.max(...heights) + 'px';
+}
+
+let masonryTimer;
+window.addEventListener('resize', ()=>{
+  clearTimeout(masonryTimer);
+  masonryTimer = setTimeout(()=>{ if(masonryRoot) layoutMasonry(masonryRoot, masonryCards); }, 150);
+});
+
 function renderGrid(){
   grid.innerHTML = '';
   emptyState.classList.toggle('show', photos.length===0);
@@ -93,6 +130,7 @@ function renderGrid(){
     const card = document.createElement('div');
     card.className = 'card' + (selected.has(p.id) ? ' selected' : '');
     card.dataset.id = p.id;
+    card.dataset.ratio = (p.width && p.height) ? (p.height / p.width) : 1;
     const starN = Math.max(0, Math.min(5, +p.stars || 0));
     const starStr = starN > 0 ? '★'.repeat(starN) + '☆'.repeat(5-starN) : '';
     const flagHtml = p.flag === 'pick' ? '<div class="flag-badge pick show">精选</div>'
@@ -122,6 +160,8 @@ function renderGrid(){
     grid.appendChild(card);
     cards.push(card);
   });
+  if(window.gsap){ grid.classList.add('masonry'); layoutMasonry(grid, cards); }
+  else grid.classList.remove('masonry');
   if (window.UIAnim) window.UIAnim.gridIn(cards);
 }
 
@@ -339,6 +379,14 @@ $('#resetAdjust').onclick = ()=>{
   edit = defaultEdit();
   resetSliders();
   if(current){ edit.resize = { width: current.width, height: current.height }; $('#reW').value = current.width; $('#reH').value = current.height; }
+  // “重置全部”：同时重置旋转/翻转/裁剪，并退出裁剪模式
+  if (cropping) {
+    cropping = false;
+    cropOverlay.hidden = true;
+    $('#cropRatios').hidden = true;
+    $('#applyCrop').hidden = true;
+    $('#cropToggle').textContent = '✂ 开启裁剪';
+  }
   setActivePreset('none');
   applyFilter();
   toast('已重置全部');
@@ -747,8 +795,10 @@ $('#batchReject').onclick = async ()=>{
   }catch(e){ toast('操作失败:'+e.message, true); }
 };
 $('#batchRate').onclick = async ()=>{
-  const s = prompt('批量评分 (0-5 星,0 为清除):', '5');
-  if(s == null) return;
+  const raw = await showInputModal('批量评分', '0-5 星（0 为清除）', '5', '输入 0-5 的整数评分');
+  if(raw == null) return;
+  const s = parseInt(raw, 10);
+  if(isNaN(s) || s < 0 || s > 5){ toast('评分需为 0-5 的整数', true); return; }
   const ids = [...selected];
   try{
     const r = await api.post('/api/photos/batch/stars', { ids, stars: +s });
@@ -785,14 +835,14 @@ $('#batchZip').onclick = async ()=>{
 };
 $('#batchAlbum').onclick = async ()=>{
   if(!albums.length){ toast('请先创建一个收藏夹', true); return; }
-  const names = albums.map((a,i)=>`${i+1}. ${a.name} (${a.count}张)`).join('\n');
-  const choice = prompt('选择收藏夹:\n'+names+'\n输入编号:');
-  if(!choice) return;
-  const idx = parseInt(choice)-1;
-  if(idx<0||idx>=albums.length){ toast('无效编号', true); return; }
+  const options = albums.map(a => ({ label: `${a.name}（${a.count} 张）`, value: a.id }));
+  const albumId = await showSelectModal('加入收藏夹', options, '选择要把照片加入的收藏夹');
+  if(!albumId) return;
+  const target = albums.find(a => a.id === albumId);
+  if(!target) return;
   const ids = [...selected];
-  await api.post(`/api/albums/${albums[idx].id}/add`, { ids });
-  toast(`已添加 ${ids.length} 张到「${albums[idx].name}」✓`); await loadAlbums();
+  await api.post(`/api/albums/${target.id}/add`, { ids });
+  toast(`已添加 ${ids.length} 张到「${target.name}」✓`); await loadAlbums();
 };
 
 /* ============ 评分/标记 ============ */
@@ -865,9 +915,11 @@ async function openAlbum(id){
   $('#albumTitle').textContent = a.name;
   const list = await api.get(`/api/search?album=${id}`);
   const ag = $('#albumGrid'); ag.innerHTML = '';
+  const cards = [];
   list.forEach((p,i)=>{
     const card = document.createElement('div');
     card.className = 'card';
+    card.dataset.ratio = (p.width && p.height) ? (p.height / p.width) : 1;
     card.innerHTML = `<img src="/thumbs/${p.id}.webp?v=${p.time}" alt="${esc(p.name)}" loading="lazy">
       <div class="acts"><button class="mini rm" title="从收藏夹移除">✕</button></div>
       <div class="meta">${esc(p.name)}</div>`;
@@ -877,7 +929,14 @@ async function openAlbum(id){
       toast('已从收藏夹移除'); openAlbum(id); loadAlbums();
     };
     ag.appendChild(card);
+    cards.push(card);
   });
+  // 收藏夹空状态
+  const albumEmpty = $('#albumEmpty');
+  if (albumEmpty) albumEmpty.style.display = list.length === 0 ? 'flex' : 'none';
+  if(window.gsap){ ag.classList.add('masonry'); layoutMasonry(ag, cards); }
+  else ag.classList.remove('masonry');
+  if (window.UIAnim) window.UIAnim.gridIn(cards);
 }
 $('#albumBackBtn').onclick = ()=>{
   activeAlbumId = null;
@@ -914,11 +973,11 @@ $('#lbSlideshow').onclick = ()=>{ closeLightbox(); openSlideshow(); };
 /* ============ 键盘快捷键(选片/评分/标记) ============ */
 document.addEventListener('keydown', e=>{
   const tgt = e.target;
-  if(tgt.matches('input,textarea,select')) return;
+  if(tgt && typeof tgt.matches === 'function' && tgt.matches('input,textarea,select')) return;
   const k = e.key;
   
   // 编辑器撤销/重做
-  if($('#editor').classList.contains('active')){
+  if(document.querySelector('.view[data-view="editor"].active')){
     if(e.ctrlKey || e.metaKey){
       if(k === 'z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
       if((k === 'y' || (k === 'z' && e.shiftKey))){ e.preventDefault(); redo(); return; }
@@ -1175,6 +1234,42 @@ function showInputModal(title, placeholder = '', defaultValue = '', hint = '') {
         cleanup(null);
       }
     };
+  });
+}
+
+// 通用选择模态框：options = [{ label, value }]，点击选项返回 value，取消返回 null
+function showSelectModal(title, options = [], hint = '') {
+  return new Promise((resolve) => {
+    const modal = $('#selectModal');
+    const box = $('#selectOptions');
+    if (!modal || !box || !options.length) {
+      resolve(null);
+      return;
+    }
+    $('#selectModalTitle').textContent = title;
+    $('#selectModalHint').textContent = hint;
+    box.innerHTML = '';
+
+    options.forEach(o => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'select-option';
+      b.textContent = o.label;
+      b.onclick = () => cleanup(o.value);
+      box.appendChild(b);
+    });
+
+    if (window.UIAnim) window.UIAnim.modal(modal, $('.modal-content', modal), true);
+    else modal.hidden = false;
+
+    const cleanup = (value) => {
+      if (window.UIAnim) window.UIAnim.modal(modal, $('.modal-content', modal), false);
+      else modal.hidden = true;
+      $('#selectModalCancel').onclick = null;
+      box.innerHTML = '';
+      resolve(value);
+    };
+    $('#selectModalCancel').onclick = () => cleanup(null);
   });
 }
 

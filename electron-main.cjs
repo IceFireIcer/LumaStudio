@@ -22,8 +22,37 @@ const { createAppServer } = require('./server-app.cjs');
 const APP_ROOT = __dirname;
 const PORT = 13579; // 固定高端口，仅监听本机回环地址
 
-// 数据目录统一使用 userData（避免写入程序目录，Program Files 下无写权限）
-const DATA_ROOT = app.getPath('userData');
+/* ============ 数据目录解析 ============
+ * 便携版（electron-builder portable 目标）：数据放在 exe 旁 storage/，随 exe 携带；
+ * 安装版：数据放在 userData（%APPDATA%\luma-studio）。
+ * 便携版 exe 目录不可写时自动回退 userData，保证数据安全。
+ */
+const USER_DATA = app.getPath('userData');
+const PORTABLE_DIR = (app.isPackaged && process.env.PORTABLE_EXECUTABLE_DIR)
+  ? process.env.PORTABLE_EXECUTABLE_DIR
+  : null;
+
+function isDirWritable(dir) {
+  try {
+    const probe = path.join(dir, `.luma-write-${process.pid}.tmp`);
+    fs.writeFileSync(probe, '1');
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let DATA_ROOT = USER_DATA;
+let IS_PORTABLE_DATA = false;
+if (PORTABLE_DIR) {
+  if (isDirWritable(PORTABLE_DIR)) {
+    DATA_ROOT = PORTABLE_DIR;
+    IS_PORTABLE_DATA = true;
+  } else {
+    console.warn('便携版目录不可写，已回退到 userData:', USER_DATA);
+  }
+}
 const LOG_DIR = path.join(DATA_ROOT, 'log');
 const DIRS = {
   uploads: path.join(DATA_ROOT, 'storage', 'uploads'),
@@ -31,19 +60,34 @@ const DIRS = {
   data: path.join(DATA_ROOT, 'storage', 'data'),
 };
 
-/* ============ 旧数据一次性迁移 ============ */
-// 旧版本把数据放在可执行文件旁边，升级后移动到 userData，避免数据“消失”
-function migrateLegacyData() {
+/* ============ 数据一次性迁移 ============ */
+function migrateData() {
   if (!app.isPackaged) return;
-  const legacy = path.join(path.dirname(process.execPath), 'storage');
-  const target = path.join(DATA_ROOT, 'storage');
-  if (fs.existsSync(legacy) && !fs.existsSync(target)) {
-    try {
-      fs.mkdirSync(DATA_ROOT, { recursive: true });
-      fs.renameSync(legacy, target);
-      console.log('已迁移旧数据目录:', target);
-    } catch (e) {
-      console.error('旧数据迁移失败（将使用空数据目录）:', e.message);
+  if (IS_PORTABLE_DATA) {
+    // 便携版：把 userData 中已有的数据复制到 exe 旁（目标不存在时执行一次，安装版数据不受影响）
+    const target = path.join(DATA_ROOT, 'storage');
+    const source = path.join(USER_DATA, 'storage');
+    if (!fs.existsSync(target) && fs.existsSync(source)) {
+      try {
+        fs.mkdirSync(target, { recursive: true });
+        fs.cpSync(source, target, { recursive: true });
+        console.log('已复制便携版数据到:', target);
+      } catch (e) {
+        console.error('便携版数据复制失败（继续使用空数据目录）:', e.message);
+      }
+    }
+  } else {
+    // 安装版：旧版本把数据放在可执行文件旁边，升级后移动到 userData，避免数据“消失”
+    const legacy = path.join(path.dirname(process.execPath), 'storage');
+    const target = path.join(DATA_ROOT, 'storage');
+    if (fs.existsSync(legacy) && !fs.existsSync(target)) {
+      try {
+        fs.mkdirSync(DATA_ROOT, { recursive: true });
+        fs.renameSync(legacy, target);
+        console.log('已迁移旧数据目录:', target);
+      } catch (e) {
+        console.error('旧数据迁移失败（将使用空数据目录）:', e.message);
+      }
     }
   }
 }
@@ -165,7 +209,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    migrateLegacyData();
+    migrateData();
     for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
     try {
       await startServer();

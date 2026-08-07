@@ -29,7 +29,7 @@ Luma Studio 将你的电脑变成私人影像工作台。在优雅的白色主�
 
 ### EXIF 元数据
 - 查看：相机、镜头、光圈、快门、ISO、焦距、GPS 等
-- 编辑：作者、版权、描述、拍摄时间（仅 JPEG）——完整支持 **UTF-8 / 中文**
+- 编辑：作者、版权、描述、拍摄时间（JPEG / PNG / WebP）——完整支持 **UTF-8 / 中文**，无损写入
 - 一键**抹除全部元数据**（隐私保护）
 
 ### 选片评分
@@ -116,7 +116,7 @@ npm run electron
 | `DELETE` | `/api/photos/:id` | 删除单张照片 |
 | `DELETE` | `/api/photos` | 删除全部照片 |
 | `GET` | `/api/photos/:id/exif` | 读取 EXIF |
-| `POST` | `/api/photos/:id/exif` | 写入 EXIF（仅 JPEG） |
+| `POST` | `/api/photos/:id/exif` | 写入 EXIF（JPEG / PNG / WebP） |
 | `POST` | `/api/photos/:id/strip-exif` | 抹除全部元数据 |
 | `POST` | `/api/photos/:id/process` | 应用编辑并保存 |
 | `POST` | `/api/photos/:id/render` | 应用编辑并返回字节 |
@@ -175,7 +175,7 @@ npm run electron
 
 ## 注意事项
 
-- **EXIF 写入**仅支持 JPEG 格式（EXIF 标准限制）。UTF-8 / 中文文本完整保留。
+- **EXIF 写入**支持 JPEG / PNG / WebP：JPEG 走 APP1 段，PNG / WebP 走 eXIf / EXIF chunk（无损，不重编码像素）。UTF-8 / 中文文本完整保留。
 - **Windows** 上 sharp 内部缓存已禁用（`sharp.cache(false)`）以避免文件句柄锁定。
 - **无认证机制**——设计用于本地/个人使用。不要直接暴露到公网，建议放在反向代理后面。
 - **中文 EXIF**：写入时使用 `Buffer.from(text,'utf8').toString('latin1')` 编码；读取时 latin1→UTF-8 解码，确保多字节字符不丢失。
