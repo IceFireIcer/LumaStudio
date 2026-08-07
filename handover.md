@@ -8,7 +8,7 @@
 - **项目**：Luma Studio · 光影工作室 —— 自托管桌面版图片查看器与 Lightroom 风格编辑器
 - **形态**：Electron 桌面应用（Node.js + Express 后端，sharp/libvips 图像管线，原生 HTML/CSS/JS 前端，零构建步骤）
 - **仓库**：https://github.com/IceFireIcer/LumaStudio ，单一分支 `main`（git 仓库根 = 本目录）
-- **当前版本**：v1.2.0（UI/UX 改版批次，实现已完成并通过 `npm test` 与 UI 冒烟；待评审/发版），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护；**工作区另有未提交的 bug 修复（EXIF 方向照片瀑布流重叠导致点图片不进预览），详见 §3 与 §4.5**
+- **当前版本**：v1.2.0（UI/UX 改版批次，实现已完成并通过 `npm test` 与 UI 冒烟；待评审/发版），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护；**EXIF 方向照片瀑布流重叠修复已提交（`5016f54`），详见 §3 与 §4.5**
 - **最近版本发布提交**：`0afffc9` release: 发布 v1.1.0（选片工作流增强）；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
 - **README 政策（v1.1.0 起）**：仅保留中文主文档 `README.md` 与英文版 `README_en.md`，de/es/fr/ja/ko 变体已移除，勿再新增
 
@@ -40,7 +40,7 @@
 - **设置**：外观卡（深色模式、减弱动效三态 `system|on|off`、快捷键速查按钮）、存储卡显示 `dataDir` + 打开数据目录（preload）
 - **日志**：搜索框、暂停实时刷新、行展开与复制；**OOBE**：步骤方向动画、拖放引导、快捷键表同步、深色适配
 
-### 修复：EXIF 方向照片瀑布流重叠（2026-08-07，工作区未提交）
+### 修复：EXIF 方向照片瀑布流重叠（2026-08-07，已提交 `5016f54`）
 - **症状**：相册页点击照片图片进不了预览（或打开的是相邻照片），点文件名才能正常打开——竖拍照片（EXIF orientation 5-8）入库宽高未按方向旋转，瀑布流按错误比例排版导致卡片互相重叠，图片区域被下一张卡片盖住
 - **修复（两层）**：`buildMeta` 对 orientation ≥ 5 交换宽高、存旋转后的显示尺寸（与缩略图一致）；前端 `layoutMasonry` 优先用缩略图真实宽高比排版，并在缩略图懒加载完成后防抖重排
 - **对已有照片**：无需重新上传/迁移数据，前端按真实比例重排即自动修复；新上传照片同时获得正确的入库宽高（EXIF 页/灯箱/编辑器尺寸显示随之修正）
@@ -129,7 +129,7 @@
 
 ## 7. 下一步建议
 
-- **立即提交**：工作区未提交的 EXIF 方向/瀑布流重叠修复（`server-app.cjs`、`public/app.js`、`test/server.test.cjs`、`scripts/ui-smoke.cjs`），提交后可将 §1 与 §3 中的“未提交”表述更新为提交号
+- **已提交**：EXIF 方向/瀑布流重叠修复已落地（`5016f54`，涉及 `server-app.cjs`、`public/app.js`、`test/server.test.cjs`、`scripts/ui-smoke.cjs`），v1.2.0 待评审/发版时可一并发布
 - 新功能候选（已列入 ROADMAP“计划中”，待确认优先级）：编辑版本链（非破坏式）→ 时间线/日历浏览 → 标签体系 → 回收站 + 全库备份 → 更多 EXIF 字段编辑 → 便携版与安装版数据迁移工具
 - 若新增前端交互，请同步扩展 `scripts/ui-smoke.cjs` 覆盖
 - 若修 bug，按 AGENTS.md 先补 node:test 回归测试
