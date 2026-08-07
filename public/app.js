@@ -165,6 +165,17 @@ const GRID_GAP = 18;
 let masonryRoot = null;
 let masonryCards = [];
 
+// 卡片实际显示比例：缩略图已加载时用真实宽高比。
+// 不能用入库宽高直接算——EXIF 方向照片（竖拍）的入库宽高可能是旋转前的，
+// 与缩略图（已按方向旋转）比例不一致，按它排版会让卡片重叠。
+function cardRatio(card){
+  const img = card.querySelector('img');
+  if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    return img.naturalHeight / img.naturalWidth;
+  }
+  return parseFloat(card.dataset.ratio || '1') || 1;
+}
+
 function layoutMasonry(root, cards){
   masonryRoot = root;
   masonryCards = cards;
@@ -176,7 +187,7 @@ function layoutMasonry(root, cards){
   const colW = (width - GRID_GAP * (cols - 1)) / cols;
   const heights = new Array(cols).fill(0);
   cards.forEach(card => {
-    const ratio = parseFloat(card.dataset.ratio || '1') || 1;
+    const ratio = cardRatio(card);
     const h = Math.round(colW * ratio);
     let col = 0;
     for(let c = 1; c < cols; c++) if(heights[c] < heights[col]) col = c;
@@ -186,9 +197,22 @@ function layoutMasonry(root, cards){
     heights[col] += h + GRID_GAP;
   });
   root.style.height = Math.max(...heights) + 'px';
+  // 缩略图是懒加载的：加载完成后按真实尺寸重排，避免首轮排版与实际高度不符导致重叠
+  cards.forEach(card => {
+    const img = card.querySelector('img');
+    if (img && !img._masonryBound) {
+      img._masonryBound = true;
+      img.addEventListener('load', scheduleMasonry);
+    }
+  });
 }
 
 let masonryTimer;
+// 缩略图逐个加载完成时合并成一次重排（防抖）
+function scheduleMasonry(){
+  clearTimeout(masonryTimer);
+  masonryTimer = setTimeout(()=>{ if(masonryRoot && masonryCards.length) layoutMasonry(masonryRoot, masonryCards); }, 80);
+}
 window.addEventListener('resize', ()=>{
   clearTimeout(masonryTimer);
   masonryTimer = setTimeout(()=>{ if(masonryRoot) layoutMasonry(masonryRoot, masonryCards); }, 150);

@@ -8,7 +8,7 @@
 - **项目**：Luma Studio · 光影工作室 —— 自托管桌面版图片查看器与 Lightroom 风格编辑器
 - **形态**：Electron 桌面应用（Node.js + Express 后端，sharp/libvips 图像管线，原生 HTML/CSS/JS 前端，零构建步骤）
 - **仓库**：https://github.com/IceFireIcer/LumaStudio ，单一分支 `main`（git 仓库根 = 本目录）
-- **当前版本**：v1.2.0（UI/UX 改版批次，实现已完成并通过 `npm test` 与 UI 冒烟；待评审/发版），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
+- **当前版本**：v1.2.0（UI/UX 改版批次，实现已完成并通过 `npm test` 与 UI 冒烟；待评审/发版），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护；**工作区另有未提交的 bug 修复（EXIF 方向照片瀑布流重叠导致点图片不进预览），详见 §3 与 §4.5**
 - **最近版本发布提交**：`0afffc9` release: 发布 v1.1.0（选片工作流增强）；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
 - **README 政策（v1.1.0 起）**：仅保留中文主文档 `README.md` 与英文版 `README_en.md`，de/es/fr/ja/ko 变体已移除，勿再新增
 
@@ -21,8 +21,8 @@
 | `preload.cjs` | Electron preload：`contextBridge` 暴露 `window.luma.openDataDir()`（打开数据目录，v1.2 新增） |
 | `electron-launch.cjs` | 启动器（spawn Electron，清理 `ELECTRON_RUN_AS_NODE` 污染） |
 | `public/` | 前端：`index.html` / `style.css` / `app.js` / `ui-anim.js`（GSAP 动画层）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
-| `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互，捕获渲染进程错误 |
-| `test/server.test.cjs` | node:test 回归测试（当前 25 个，全部通过） |
+| `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互、v1.2 验收用例与 EXIF 方向防重叠回归（`MASONRY`），捕获渲染进程错误 |
+| `test/server.test.cjs` | node:test 回归测试（当前 34 个，全部通过） |
 | `build/installer/` | Inno Setup 安装脚本（仓库源文件，勿删） |
 | `ROADMAP.md` / `CHANGELOG.md` / `README.md` / `README_en.md` / `AGENTS.md` / `handover.md` | 规划 / 版本日志 / 文档 / 仓库规范 / 本交接文档 |
 
@@ -39,6 +39,12 @@
 - **收藏夹**：卡片首图封面（`cover` 字段）、详情页完整批量条（`createCard` 复用 + `refreshAfterBatch` 留在当前收藏夹刷新）、卡片拖拽到侧边栏"收藏夹"加入、详情页窗口拖放自动上传并加入
 - **设置**：外观卡（深色模式、减弱动效三态 `system|on|off`、快捷键速查按钮）、存储卡显示 `dataDir` + 打开数据目录（preload）
 - **日志**：搜索框、暂停实时刷新、行展开与复制；**OOBE**：步骤方向动画、拖放引导、快捷键表同步、深色适配
+
+### 修复：EXIF 方向照片瀑布流重叠（2026-08-07，工作区未提交）
+- **症状**：相册页点击照片图片进不了预览（或打开的是相邻照片），点文件名才能正常打开——竖拍照片（EXIF orientation 5-8）入库宽高未按方向旋转，瀑布流按错误比例排版导致卡片互相重叠，图片区域被下一张卡片盖住
+- **修复（两层）**：`buildMeta` 对 orientation ≥ 5 交换宽高、存旋转后的显示尺寸（与缩略图一致）；前端 `layoutMasonry` 优先用缩略图真实宽高比排版，并在缩略图懒加载完成后防抖重排
+- **对已有照片**：无需重新上传/迁移数据，前端按真实比例重排即自动修复；新上传照片同时获得正确的入库宽高（EXIF 页/灯箱/编辑器尺寸显示随之修正）
+- **回归**：node:test 新增“EXIF 方向照片入库宽高为旋转后的显示尺寸（与缩略图比例一致）”；冒烟新增 `MASONRY` 防重叠检查（6 张混合照片，`bad=[]`）
 
 ### v1.1.0 现状（基础能力，v1.2 保持）
 
@@ -97,11 +103,12 @@
 - **设置驱动动效**：`UIAnim.setReduceMode('system'|'on'|'off')` 由 `settings.reduceMotion` 驱动，不再是模块加载时一次性读取 matchMedia
 - **全局拖放上传**：window `drop` handler 必须跳过 `e.target.closest('#dropzone')` 的事件——dropzone 自己的 drop 会冒泡到 window，否则同一批文件上传两次（冒烟 `DROP-ONCE` 回归锁定）
 - **收藏夹详情页刷新**：`renderGrid()` 只重建库视图 `#grid`；详情页内的批量全选/取消、缩略图取消、评分等走 `refreshCurrentGrid()`（→ `renderAlbumGrid`），否则可见卡片选中/星星状态不更新（冒烟 `ALBUM-BATCH` 回归锁定）
+- **瀑布流防重叠（v1.2.0 修复）**：`layoutMasonry` 用 `cardRatio()` 优先取缩略图真实宽高比（`img.complete && naturalWidth > 0`），不再直接依赖入库宽高；缩略图懒加载完成后经 `scheduleMasonry`（80ms 防抖）重排。配套 `buildMeta` 对 EXIF orientation ≥ 5 交换宽高，新上传照片入库比例与缩略图一致；已有照片由前端重排自动修复，无需数据迁移。冒烟 `MASONRY` 回归锁定
 
 ## 5. 常见操作
 
-- **跑测试**：`npm test`（32 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归）
-- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE dark-ok ...`、`SHORTCUTS shortcut-ok ...`、`CONFIRM confirm-ok ...`、`LB-ZOOM lbzoom-ok zoomed=true panned=true ...`、`UPLOAD-OVERLAY overlay-ok ...`、`FLIP-GRID flip-ok ...`、`DRAFT draft-ok saved=true afterExport=404`、`CONSOLE-ERRORS []`；脚本已加主进程未捕获异常兜底与 90s 看门狗）
+- **跑测试**：`npm test`（34 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归、EXIF 方向照片入库宽高回归）
+- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE dark-ok ...`、`SHORTCUTS shortcut-ok ...`、`CONFIRM confirm-ok ...`、`LB-ZOOM lbzoom-ok zoomed=true panned=true ...`、`UPLOAD-OVERLAY overlay-ok ...`、`FLIP-GRID flip-ok ...`、`DRAFT draft-ok saved=true afterExport=404`、`MASONRY masonry-ok cards=6 bad=[]`（EXIF 方向照片防重叠）、`CONSOLE-ERRORS []`；脚本已加主进程未捕获异常兜底与 90s 看门狗）
 - **启动开发**：`npm start` / `npm run electron`
 - **构建**：`npm run build:win` → `release/`（NSIS + portable）
 - **发版流程**（每次一致）：改版本号（package.json + package-lock.json + server-app.cjs 默认值 + index.html 关于页）→ CHANGELOG 加条目（中文+English+Release Assets+Notes）→ `release:` 提交 → push main → `git tag -a vX.Y.Z` + push tag → `gh release create vX.Y.Z --title "Luma Studio vX.Y.Z 桌面版" --notes-file ... --latest`，产物按 `Luma.Studio.Setup.X.Y.Z.exe` / `Luma.Studio.X.Y.Z.exe` 命名上传
@@ -113,6 +120,7 @@
 - **键盘快捷键没反应**：先确认是否在输入框内；若整体失效，检查 keydown 监听是否被异常打断；注意**对比模式优先级最高**，会吞掉灯箱/相册的按键
 - **EXIF 写入 400**：仅支持 JPEG/PNG/WebP；WebP 变体（动画等）可能被安全拒绝
 - **信息页/编辑器预览空白**：v1.0.9 已修复（从侧边栏进入也会自动加载）；若再出现，先查日志里是否有 `GET /api/photos/:id/exif`
+- **点击图片不进预览 / 打开的是别的照片**：EXIF 方向照片瀑布流重叠所致，v1.2.0 已修复（`buildMeta` 存旋转后宽高 + 前端按缩略图真实比例排版并加载后重排）；若再出现，先确认是否旧版本构建，或该照片缩略图是否加载失败（失败时回落用入库宽高比）
 - **冒烟测试输出 GPU 报错**（`command_buffer_proxy_impl`）：Chromium 无头窗口噪声，可忽略；关注 `CONSOLE-ERRORS`
 - **构建/测试的 DeprecationWarning**（`DEP0190`、LF/CRLF 警告）：无害，无需处理
 - **端口**：固定 `13579`，仅监听 `127.0.0.1`；被占用则启动失败
@@ -121,6 +129,7 @@
 
 ## 7. 下一步建议
 
+- **立即提交**：工作区未提交的 EXIF 方向/瀑布流重叠修复（`server-app.cjs`、`public/app.js`、`test/server.test.cjs`、`scripts/ui-smoke.cjs`），提交后可将 §1 与 §3 中的“未提交”表述更新为提交号
 - 新功能候选（已列入 ROADMAP“计划中”，待确认优先级）：编辑版本链（非破坏式）→ 时间线/日历浏览 → 标签体系 → 回收站 + 全库备份 → 更多 EXIF 字段编辑 → 便携版与安装版数据迁移工具
 - 若新增前端交互，请同步扩展 `scripts/ui-smoke.cjs` 覆盖
 - 若修 bug，按 AGENTS.md 先补 node:test 回归测试

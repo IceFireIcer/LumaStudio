@@ -852,3 +852,25 @@ test('HTTP: /api/stats 返回 dataDir', async () => {
     await closeServer(srv);
   }
 });
+
+test('HTTP: EXIF 方向照片入库宽高为旋转后的显示尺寸（与缩略图比例一致）', async () => {
+  const { srv, base, dirs } = await startServer();
+  try {
+    // 原始 200×100 + orientation 6 → 显示为 100×200（竖拍）
+    const raw = await sharp(makeFixture(), { raw: { width: 200, height: 100, channels: 3 } }).jpeg().toBuffer();
+    const oriented = Buffer.from(
+      piexif.insert(piexif.dump({ '0th': { [piexif.ImageIFD.Orientation]: 6 } }), raw.toString('binary')),
+      'binary'
+    );
+    const up = await uploadJpeg(base, oriented, 'orie.jpg');
+    assert.equal(up.added.length, 1);
+    const p = up.added[0];
+    assert.equal(p.width, 100, '宽度应为旋转后的显示宽度');
+    assert.equal(p.height, 200, '高度应为旋转后的显示高度');
+    // 缩略图宽高比与入库宽高比一致（前端瀑布流按此排版，不一致会重叠）
+    const thumb = await sharp(path.join(dirs.thumbs, p.id + '.webp')).metadata();
+    assert.equal(thumb.width / thumb.height, p.width / p.height, '缩略图比例应与入库宽高比一致');
+  } finally {
+    await closeServer(srv);
+  }
+});

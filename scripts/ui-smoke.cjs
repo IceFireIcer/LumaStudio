@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const sharp = require('sharp');
+const piexif = require('piexifjs');
 const { createAppServer } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -52,13 +53,25 @@ app.whenReady().then(async () => {
 
   const server = serverApp.listen(SMOKE_PORT, '127.0.0.1', async () => {
     const port = SMOKE_PORT;
-    // 先上传两张测试照片，让页面有可选的当前照片与对比对象
+    // 先上传测试照片：两张横图 + 两张竖拍方向照片（EXIF orientation 6），
+    // 让页面有可选的当前照片/对比对象，同时覆盖瀑布流比例失配回归。
     const jpeg = await sharp({
       create: { width: 800, height: 600, channels: 3, background: { r: 120, g: 180, b: 90 } },
     }).jpeg().toBuffer();
+    const orieRaw = await sharp({
+      create: { width: 1600, height: 900, channels: 3, background: { r: 220, g: 120, b: 80 } },
+    }).jpeg().toBuffer();
+    const orieBuf = Buffer.from(
+      piexif.insert(piexif.dump({ '0th': { [piexif.ImageIFD.Orientation]: 6 } }), orieRaw.toString('binary')),
+      'binary'
+    );
     const fd = new FormData();
     fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-a.jpg');
     fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-b.jpg');
+    fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-c.jpg');
+    fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-d.jpg');
+    fd.append('photos', new Blob([orieBuf], { type: 'image/jpeg' }), 'smoke-orie-a.jpg');
+    fd.append('photos', new Blob([orieBuf], { type: 'image/jpeg' }), 'smoke-orie-b.jpg');
     await fetch(`http://127.0.0.1:${port}/api/upload`, { method: 'POST', body: fd });
     const errors = [];
     const win = new BrowserWindow({
@@ -96,6 +109,30 @@ app.whenReady().then(async () => {
           scripts: Array.from(document.scripts).map(s => s.src.replace(location.origin, ''))
         })`);
         console.log('UI-STATE ' + JSON.stringify(state));
+
+        // 回归：EXIF 方向照片（竖拍）入库宽高应为旋转后的显示尺寸，
+        // 瀑布流按缩略图真实比例排版、卡片不重叠（点击图片不被邻卡盖住）
+        const masonry = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            await new Promise(r => setTimeout(r, 900)); // 等缩略图加载 + 防抖重排
+            const cards = Array.from(document.querySelectorAll('#grid .card'));
+            const bad = [];
+            for (const c of cards) {
+              const img = c.querySelector('img');
+              const r = img.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              if (hit !== img) {
+                const over = hit && hit.closest ? hit.closest('.card') : null;
+                bad.push(c.dataset.id + ' covered by ' + (over ? over.dataset.id : 'non-card'));
+              }
+              const ratio = parseFloat(c.dataset.ratio || '1');
+              const nat = img.naturalWidth && img.naturalHeight ? img.naturalHeight / img.naturalWidth : null;
+              if (nat && Math.abs(ratio - nat) > 0.01) bad.push(c.dataset.id + ' ratio ' + ratio + ' != ' + nat.toFixed(3));
+            }
+            return 'masonry-ok cards=' + cards.length + ' bad=' + JSON.stringify(bad);
+          } catch (e) { return 'masonry-error:' + e.message; }
+        })()`);
+        console.log('MASONRY ' + masonry);
 
         const anim = await win.webContents.executeJavaScript(`(function(){
           const d = document.createElement('div');

@@ -335,13 +335,18 @@ async function makeThumb(srcPath, id, thumbSize, thumbsDir) {
 async function buildMeta(filePath, id, original) {
   const meta = await sharp(filePath).metadata();
   const stat = await fsp.stat(filePath);
+  // 缩略图生成（makeThumb）已按 EXIF 方向旋转，这里同样保存旋转后的显示尺寸，
+  // 否则竖拍照片（orientation 5-8）入库宽高与缩略图比例不一致，
+  // 前端瀑布流按错误比例排版会导致卡片重叠、点击图片命中错误目标。
+  const orientation = meta.orientation || 1;
+  const rotated = orientation >= 5;
   return {
     id,
     name: String(original || '').slice(0, 200),
     file: path.basename(filePath),
     format: meta.format,
-    width: meta.width,
-    height: meta.height,
+    width: rotated ? meta.height : meta.width,
+    height: rotated ? meta.width : meta.height,
     size: stat.size,
     time: Date.now(),
     stars: 0,
