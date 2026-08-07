@@ -26,6 +26,7 @@ Luma Studio 将你的电脑变成私人影像工作台。在优雅的白色主�
 - **导出**：JPEG / PNG / WebP / AVIF，质量滑块，实时体积预估
 - **保存为副本** 或 **覆盖原图**
 - **下载到本地**（不落库，直接回传字节）
+- **前后对比**：原图 / 编辑后分屏对比，可拖动分界线查看任意位置的差异
 
 ### EXIF 元数据
 - 查看：相机、镜头、光圈、快门、ISO、焦距、GPS 等
@@ -35,7 +36,16 @@ Luma Studio 将你的电脑变成私人影像工作台。在优雅的白色主�
 ### 选片评分
 - 1–5 星评分（键盘 `1`–`5`，`0` 清除）
 - 精选 / 排除标记（`P` / `R` 键）
+- **快速选片**：`X` 排除、`U` 清除标记；灯箱 / 对比中标记后自动跳转下一张（可在设置中关闭）
+- **并排对比选片**（灯箱内 `C` 键）：两张照片并排比较，`Tab` 切换标记目标，`←`/`→` 换组
+- **隐藏排除**：工具栏按钮或 `H` 键一键隐藏被排除的照片
 - 批量操作：评分、标记、添加到收藏夹、打包 ZIP 下载、批量删除
+
+### 批量处理
+- 多选照片后统一应用预设（原图 / 鲜艳 / 柔和 / 复古 / 黑白 / 高对比）
+- 支持百分比缩放、输出格式（保持原格式 / JPEG / PNG / WebP / AVIF）与质量调节
+- 后台队列处理：实时进度条、逐张错误隔离、可随时取消
+- 另存副本或覆盖原图
 
 ### 收藏夹
 - 创建 / 重命名 / 删除收藏夹
@@ -62,6 +72,10 @@ Luma Studio 将你的电脑变成私人影像工作台。在优雅的白色主�
 | `0` | 清除评分 |
 | `P` | 标记精选 |
 | `R` | 标记排除 |
+| `X` | 标记排除并自动跳转下一张 |
+| `U` | 清除标记 |
+| `C` / `Tab` | 灯箱并排对比选片 / 切换标记目标 |
+| `H` | 隐藏排除照片 |
 | `←` `→` | 灯箱 / 幻灯片导航 |
 | `Ctrl+Z` | 撤销（编辑器） |
 | `Ctrl+Y` | 重做（编辑器） |
@@ -125,13 +139,16 @@ npm run electron
 | `GET` | `/api/settings` | 获取设置 |
 | `POST` | `/api/settings` | 更新设置 |
 | `GET` | `/api/stats` | 存储统计 |
-| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `album`） |
+| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`） |
 | `GET` | `/api/info` | 系统信息 |
 | `POST` | `/api/photos/:id/stars` | 设置评分（0–5） |
 | `POST` | `/api/photos/:id/flag` | 设置标记（`pick` / `reject` / `null`） |
 | `POST` | `/api/photos/batch/stars` | 批量评分 `{ ids, stars }` |
 | `POST` | `/api/photos/batch/flag` | 批量标记 `{ ids, flag }` |
 | `POST` | `/api/photos/batch/delete` | 批量删除 `{ ids }` |
+| `POST` | `/api/photos/batch/process` | 批量处理 `{ ids, pipeline, mode }` → `{ jobId }` |
+| `GET` | `/api/jobs/:id` | 查询后台任务进度 |
+| `POST` | `/api/jobs/:id/cancel` | 取消后台任务 |
 | `POST` | `/api/photos/download-zip` | 打包下载 ZIP `{ ids }` |
 | `GET` | `/api/albums` | 获取收藏夹列表 |
 | `POST` | `/api/albums` | 创建收藏夹 `{ name }` |

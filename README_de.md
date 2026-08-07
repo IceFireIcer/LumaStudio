@@ -2,6 +2,14 @@
 
 > **[English](README_en.md) | [中文](README.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Français](README_fr.md) | [Español](README_es.md)**
 
+## Neu in v1.1.0
+
+- **Stapelverarbeitung**: Preset / Verkleinerung / Format / Qualität auf mehrere Fotos anwenden (Fortschrittsbalken, abbrechbar)
+- **Vorher/Nachher-Vergleich** im Editor (verschiebbarer Teiler)
+- **Nebeneinander-Vergleich** in der Lightbox (`C`), `Tab` wechselt das Markierungsziel
+- **Schnelle Bildauswahl**: `X` ablehnen und weiter, `U` Flag entfernen, automatisches Weiterblättern (in Einstellungen abschaltbar)
+- **Abgelehnte ausblenden**: Toolbar-Button oder Taste `H`
+
 Selbst-gehosteter Foto-Viewer und **Lightroom-Stil Bildeditor**. Einmal hochladen, für immer behalten — Ihre Fotos werden als echte Dateien auf der Festplatte gespeichert, nicht im Browser-Speicher.
 
 Luma Studio verwandelt Ihren Computer in ein privates Fotostudio. Durchstöbern Sie Ihre Bibliothek in einer eleganten weißen Galerie und wechseln dann zum Vollbild-Editor zum Anpassen, Transformieren, Zuschneiden, Skalieren, Komprimieren und Bearbeiten von EXIF-Metadaten — alles serverseitig verarbeitet mit [sharp](https://sharp.pixelplumbing.com/) (libvips).

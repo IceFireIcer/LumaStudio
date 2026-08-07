@@ -2,6 +2,14 @@
 
 > **[English](README_en.md) | [中文](README.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [Español](README_es.md) | [Deutsch](README_de.md)**
 
+## Nouveautés v1.1.0
+
+- **Traitement par lot** : appliquez un préréglage / une réduction / un format / une qualité à plusieurs photos (barre de progression, annulation)
+- **Comparaison avant / après** dans l'éditeur (diviseur déplaçable)
+- **Comparaison côte à côte** dans la visionneuse (`C`), `Tab` pour changer la cible de marquage
+- **Sélection rapide** : `X` rejette et avance, `U` efface le drapeau, avance automatique après marquage (désactivable dans les réglages)
+- **Masquer les rejets** : bouton de la barre d'outils ou touche `H`
+
 Visionneuse photo et éditeur d'images **style Lightroom**, auto-hébergé. Uploadez une fois, conservez pour toujours — vos photos sont stockées en tant que fichiers réels sur le disque, pas dans le stockage du navigateur.
 
 Luma Studio transforme votre machine en un atelier photo privé. Parcourez votre bibliothèque dans une galerie élégante au thème blanc, puis passez à un éditeur complet pour ajuster, transformer, recadrer, redimensionner, recompresser et réécrire les métadonnées EXIF — le tout traité côté serveur avec [sharp](https://sharp.pixelplumbing.com/) (libvips).

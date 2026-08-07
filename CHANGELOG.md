@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.1.0
+
+### 中文
+- 新增**批量处理**：多选照片统一应用预设（原图/鲜艳/柔和/复古/黑白/高对比）、百分比缩放、输出格式（保持原格式/JPEG/PNG/WebP/AVIF）与质量；后台队列 + 实时进度条 + 逐张错误隔离 + 可取消；另存副本或覆盖原图
+- 新增编辑器**前后对比视图**：原图 / 编辑后分屏对比，可拖动分界线查看任意位置的差异
+- 新增灯箱**并排对比选片**（C 键/对比按钮）：两张照片并排比较，`Tab` 切换标记目标，`P/R/X/U/1-5` 标记后自动进入下一组
+- 新增快速选片快捷键：`X` 标记排除并自动跳转下一张，`U` 清除标记；灯箱中评分/标记后自动跳转下一张（设置中可关闭）
+- 新增**隐藏排除**筛选：工具栏按钮或 `H` 键一键隐藏被排除的照片
+- 修复批量评分/标记/删除被 `/api/photos/:id` 路由遮蔽导致 404 的潜在问题（批量路由改为提前注册）
+- 设置页新增“选片”分组：选片标记后自动跳转下一张开关
+
+### English
+- Added **batch processing**: apply a preset (Original/Vivid/Soft/Vintage/Mono/High-contrast), percentage resize, output format (keep original/JPEG/PNG/WebP/AVIF) and quality to multiple photos at once, with a background queue, live progress, per-photo error isolation and cancel support; save as copies or overwrite originals
+- Added **Before/After** comparison in the editor with a draggable divider
+- Added **side-by-side compare culling** in the lightbox (`C` key/button): compare two photos, `Tab` switches the marking target, `P/R/X/U/1-5` marks and advances to the next pair
+- Added fast culling shortcuts: `X` rejects and advances, `U` clears the flag; rating/flags in the lightbox auto-advance (toggle in Settings)
+- Added **Hide Rejects** filter via toolbar button or `H` key
+- Fixed batch stars/flag/delete endpoints being shadowed by `/api/photos/:id` routes (404); batch routes are now registered first
+- Added a "Culling" section in Settings with the auto-advance toggle
+
+### Release Assets
+- `Luma Studio Setup 1.1.0.exe` — Windows installer, recommended for most users
+- `Luma Studio 1.1.0.exe` — Windows portable build, recommended for direct use without installation
+
+### Notes
+- This release focuses on the photographer's culling workflow: batch processing, before/after and side-by-side comparison, fast flag shortcuts, and hide-rejects filtering.
+
+---
+
 ## v1.0.9
 
 ### 中文

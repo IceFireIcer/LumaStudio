@@ -26,6 +26,7 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 - **Export**: JPEG / PNG / WebP / AVIF, quality slider, live size estimate
 - **Save as copy** or **overwrite original**
 - **Download to local** without saving to server
+- **Before / After**: split-screen comparison of the original vs. the edited result with a draggable divider
 
 ### Metadata (EXIF)
 - View camera, lens, aperture, shutter, ISO, focal length, GPS, and more
@@ -35,7 +36,16 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 ### Photo Culling
 - 1–5 star rating (click or keyboard `1`–`5`, `0` to clear)
 - Pick / Reject flags (`P` / `R` keys)
+- **Fast culling**: `X` rejects and advances, `U` clears the flag; auto-advance after rating/flags in lightbox & compare (toggle in Settings)
+- **Side-by-side compare** (`C` in lightbox): compare two photos, `Tab` switches the marking target, `←`/`→` moves to the next pair
+- **Hide rejects**: toolbar button or `H` key hides rejected photos instantly
 - Batch operations: rate, flag, add to album, download ZIP, delete
+
+### Batch Processing
+- Apply a preset (Original / Vivid / Soft / Vintage / Mono / High-contrast) to all selected photos at once
+- Optional percentage resize, output format (keep original / JPEG / PNG / WebP / AVIF) and quality
+- Background queue with live progress, per-photo error isolation, and cancel support
+- Save as copies or overwrite originals
 
 ### Albums
 - Create, rename, delete collections
@@ -62,6 +72,10 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 | `0` | Clear rating |
 | `P` | Mark pick |
 | `R` | Mark reject |
+| `X` | Mark reject and advance to the next photo |
+| `U` | Clear flag |
+| `C` / `Tab` | Side-by-side compare in lightbox / switch marking target |
+| `H` | Hide rejected photos |
 | `←` `→` | Navigate in lightbox / slideshow |
 | `Ctrl+Z` | Undo (editor) |
 | `Ctrl+Y` | Redo (editor) |
@@ -153,13 +167,16 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `GET` | `/api/settings` | Get settings |
 | `POST` | `/api/settings` | Update settings |
 | `GET` | `/api/stats` | Storage statistics |
-| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`) |
+| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`) |
 | `GET` | `/api/info` | System info |
 | `POST` | `/api/photos/:id/stars` | Set stars (0–5) |
 | `POST` | `/api/photos/:id/flag` | Set flag (`pick` / `reject` / `null`) |
 | `POST` | `/api/photos/batch/stars` | Batch stars `{ ids, stars }` |
 | `POST` | `/api/photos/batch/flag` | Batch flag `{ ids, flag }` |
 | `POST` | `/api/photos/batch/delete` | Batch delete `{ ids }` |
+| `POST` | `/api/photos/batch/process` | Batch process `{ ids, pipeline, mode }` → `{ jobId }` |
+| `GET` | `/api/jobs/:id` | Query background job progress |
+| `POST` | `/api/jobs/:id/cancel` | Cancel a background job |
 | `POST` | `/api/photos/download-zip` | Download as ZIP `{ ids }` |
 | `GET` | `/api/albums` | List albums |
 | `POST` | `/api/albums` | Create album `{ name }` |
@@ -188,7 +205,7 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 
 ## Notes
 
-- **EXIF writing** is JPEG-only (EXIF standard limitation). UTF-8 / CJK text is preserved.
+- **EXIF writing** supports JPEG / PNG / WebP (lossless chunk-level writes). UTF-8 / CJK text is preserved.
 - On **Windows**, sharp cache is disabled (`sharp.cache(false)`) to avoid file-handle locks.
 - **No authentication** — designed for local / personal use. Don't expose to the public internet without a reverse proxy.
 - **Chinese EXIF**: Write uses `Buffer.from(text,'utf8').toString('latin1')`; read decodes latin1→UTF-8. This preserves multi-byte characters that piexifjs would otherwise lose.
