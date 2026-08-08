@@ -8,7 +8,7 @@
 - **项目**：Luma Studio · 光影工作室 —— 自托管桌面版图片查看器与 Lightroom 风格编辑器
 - **形态**：Electron 桌面应用（Node.js + Express 后端，sharp/libvips 图像管线，原生 HTML/CSS/JS 前端，零构建步骤）
 - **仓库**：https://github.com/IceFireIcer/LumaStudio ，单一分支 `main`（git 仓库根 = 本目录）
-- **当前版本**：v1.2.0（UI/UX 改版批次，实现已完成并通过 `npm test` 与 UI 冒烟；待评审/发版），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护；**EXIF 方向照片瀑布流重叠修复已提交（`5016f54`），详见 §3 与 §4.5**
+- **当前版本**：v1.2.1（2026-08-08：多开支持 + 本地令牌 + 写锁 + 任务落盘 + 性能优化 + 错误体验；已通过 `npm test` 44 个与 UI 冒烟全绿），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
 - **最近版本发布提交**：`0afffc9` release: 发布 v1.1.0（选片工作流增强）；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
 - **README 政策（v1.1.0 起）**：仅保留中文主文档 `README.md` 与英文版 `README_en.md`，de/es/fr/ja/ko 变体已移除，勿再新增
 
@@ -21,12 +21,21 @@
 | `preload.cjs` | Electron preload：`contextBridge` 暴露 `window.luma.openDataDir()`（打开数据目录，v1.2 新增） |
 | `electron-launch.cjs` | 启动器（spawn Electron，清理 `ELECTRON_RUN_AS_NODE` 污染） |
 | `public/` | 前端：`index.html` / `style.css` / `app.js` / `ui-anim.js`（GSAP 动画层）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
-| `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互、v1.2 验收用例与 EXIF 方向防重叠回归（`MASONRY`），捕获渲染进程错误 |
-| `test/server.test.cjs` | node:test 回归测试（当前 34 个，全部通过） |
+| `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互、v1.2 验收用例、EXIF 方向防重叠回归（`MASONRY`）与 v1.2.1 损坏 WebP 写 EXIF 回归（`WEBP400`），捕获渲染进程错误 |
+| `test/server.test.cjs` | node:test 回归测试（当前 44 个，全部通过） |
 | `build/installer/` | Inno Setup 安装脚本（仓库源文件，勿删） |
 | `ROADMAP.md` / `CHANGELOG.md` / `README.md` / `README_en.md` / `AGENTS.md` / `handover.md` | 规划 / 版本日志 / 文档 / 仓库规范 / 本交接文档 |
 
-## 3. 已实现功能（v1.1.0 现状）
+## 3. 已实现功能（v1.2.1 现状）
+
+### v1.2.1 多开 / 安全 / 可靠性批次（2026-08-08）
+
+- **多开支持**：`electron-main.cjs` 单实例锁失败时新实例弹原生对话框（`dialog.showMessageBox`），选「关闭新实例」退出，选「多开新窗口」经 `findFreePort` 探测空闲端口启动并**共享同一数据目录**；多开跳过 `second-instance` 聚焦、不迁移数据（`bootstrap(freePort, { migrate: false })`）；窗口生命周期事件（activate / window-all-closed / will-quit）统一提到锁分支之外
+- **文件级写锁**：`persistWithLock`（`wx` 原子创建 `<file>.lock`，含 pid+时间戳，30s/死 pid 判残留并接管）；`persistDB / persistDrafts / persistSettings / persistJobs` 均走锁；锁冲突抛 `LumaWriteConflict` → 统一错误中间件转 409；批量任务用 `persistDBWithRetry`（3 次 × 200ms 重试）避免整张照片误判失败
+- **本地访问令牌**：首启 `crypto.randomBytes(32)` 生成存 `settings.json`；写请求校验 `X-Luma-Token`，`TOKEN_ENABLED = requireToken ?? isElectron`（Electron 生产默认开启，测试/冒烟默认关闭）；`POST /api/auth/reset-token` 重置；公开 `/api/settings` 不含令牌；preload 新增 `getToken()`，`ipcMain.handle('get-auth-token')` 从 `createAppServer` 返回的 `getAuthToken()` 取
+- **批量任务落盘**：`jobs.json` 持久化任务状态（create/每张/结束/取消时 `persistJobs`）；启动 `loadPersistedJobs` 恢复，`running` → `error`（"应用重启，任务中断"）不自动续跑
+- **性能**：`runBatchJob` 改为 2 路有限并发池（worker 共享索引）；日志刷新间隔设置 `logsRefreshInterval`（3/10/30s，默认 3）；`sharp.cache(false)` 仅 Windows（非 Windows 启用默认缓存）
+- **错误体验**：损坏/动画 WebP 或损坏 PNG 写 EXIF 400 文案改为「不支持写入 EXIF，原文件未改动」；端口占用/启动失败弹 `dialog.showErrorBox`（不再静默退出）
 
 ### v1.2 UI/UX 改版（2026-08-07，规格：docs/ui-redesign.md）
 - **设计系统**：颜色/间距/圆角/阴影/动效全量 token 化；深色模式 `html[data-theme="dark"]`（settings.theme，手动二态）；预置 6 色板暗色变体写死 CSS，非预置色用 `color-mix` 兜底；定制滚动条与 `:focus-visible`
@@ -107,8 +116,8 @@
 
 ## 5. 常见操作
 
-- **跑测试**：`npm test`（34 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归、EXIF 方向照片入库宽高回归）
-- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE dark-ok ...`、`SHORTCUTS shortcut-ok ...`、`CONFIRM confirm-ok ...`、`LB-ZOOM lbzoom-ok zoomed=true panned=true ...`、`UPLOAD-OVERLAY overlay-ok ...`、`FLIP-GRID flip-ok ...`、`DRAFT draft-ok saved=true afterExport=404`、`MASONRY masonry-ok cards=6 bad=[]`（EXIF 方向照片防重叠）、`CONSOLE-ERRORS []`；脚本已加主进程未捕获异常兜底与 90s 看门狗）
+- **跑测试**：`npm test`（44 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归、EXIF 方向照片入库宽高回归、v1.2.1 令牌/写锁/任务落盘/WebP 400 回归）
+- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE dark-ok ...`、`SHORTCUTS shortcut-ok ...`、`CONFIRM confirm-ok ...`、`LB-ZOOM lbzoom-ok zoomed=true panned=true ...`、`UPLOAD-OVERLAY overlay-ok ...`、`FLIP-GRID flip-ok ...`、`DRAFT draft-ok saved=true afterExport=404`、`MASONRY masonry-ok cards=7 bad=[]`（EXIF 方向照片防重叠）、`WEBP400 webp400-ok status=400 friendly=true ...`（损坏 WebP 写 EXIF 友好提示）、`CONSOLE-ERRORS []`；脚本已加主进程未捕获异常兜底与 90s 看门狗；**运行前需清掉环境变量 `ELECTRON_RUN_AS_NODE`**（部分 shell 预设该变量会让 Electron 以 Node 模式启动、`app` 为 undefined）
 - **启动开发**：`npm start` / `npm run electron`
 - **构建**：`npm run build:win` → `release/`（NSIS + portable）
 - **发版流程**（每次一致）：改版本号（package.json + package-lock.json + server-app.cjs 默认值 + index.html 关于页）→ CHANGELOG 加条目（中文+English+Release Assets+Notes）→ `release:` 提交 → push main → `git tag -a vX.Y.Z` + push tag → `gh release create vX.Y.Z --title "Luma Studio vX.Y.Z 桌面版" --notes-file ... --latest`，产物按 `Luma.Studio.Setup.X.Y.Z.exe` / `Luma.Studio.X.Y.Z.exe` 命名上传
@@ -116,20 +125,20 @@
 ## 6. 各种情况 / 注意事项
 
 - **“数据不见了”**：先分清是安装版还是便携版——便携版数据在 exe 旁，安装版在 AppData；换目录/换机器不会自动跟过去
-- **批量任务丢了**：任务状态在内存中，重启即失；已生成的副本/覆盖结果不会回滚
+- **批量任务中断**：v1.2.1 起任务状态落盘（`jobs.json`），重启后恢复记录；重启时 running 任务标记为「中断」不自动续跑；已生成的副本/覆盖结果不回滚
 - **键盘快捷键没反应**：先确认是否在输入框内；若整体失效，检查 keydown 监听是否被异常打断；注意**对比模式优先级最高**，会吞掉灯箱/相册的按键
 - **EXIF 写入 400**：仅支持 JPEG/PNG/WebP；WebP 变体（动画等）可能被安全拒绝
 - **信息页/编辑器预览空白**：v1.0.9 已修复（从侧边栏进入也会自动加载）；若再出现，先查日志里是否有 `GET /api/photos/:id/exif`
 - **点击图片不进预览 / 打开的是别的照片**：EXIF 方向照片瀑布流重叠所致，v1.2.0 已修复（`buildMeta` 存旋转后宽高 + 前端按缩略图真实比例排版并加载后重排）；若再出现，先确认是否旧版本构建，或该照片缩略图是否加载失败（失败时回落用入库宽高比）
 - **冒烟测试输出 GPU 报错**（`command_buffer_proxy_impl`）：Chromium 无头窗口噪声，可忽略；关注 `CONSOLE-ERRORS`
 - **构建/测试的 DeprecationWarning**（`DEP0190`、LF/CRLF 警告）：无害，无需处理
-- **端口**：固定 `13579`，仅监听 `127.0.0.1`；被占用则启动失败
-- **安全**：无认证机制，仅限本机/个人使用，勿暴露公网
+- **端口**：默认 `13579`，仅监听 `127.0.0.1`；被占用时新实例弹原生对话框选「关闭」或「多开换端口」（多开实例与主实例共享数据目录，写操作用文件锁兜底）
+- **安全**：Electron 生产写请求强制校验本地访问令牌（`X-Luma-Token`，设置页可查看/重置）；无公网认证，仅限本机/个人使用，勿暴露公网
 - **不要提交**：`release/`、`release.old-*/`、`node_modules/`、运行时照片数据、`storage/` 内容（见 `.gitignore`）
 
 ## 7. 下一步建议
 
-- **已提交**：EXIF 方向/瀑布流重叠修复已落地（`5016f54`，涉及 `server-app.cjs`、`public/app.js`、`test/server.test.cjs`、`scripts/ui-smoke.cjs`），v1.2.0 待评审/发版时可一并发布
+- **v1.2.1 已就绪**：多开 / 令牌 / 写锁 / 任务落盘 / 性能优化 / 错误体验批次已完成，`npm test` 44 个全绿 + UI 冒烟全绿，按发版流程发布 v1.2.1
 - 新功能候选（已列入 ROADMAP“计划中”，待确认优先级）：编辑版本链（非破坏式）→ 时间线/日历浏览 → 标签体系 → 回收站 + 全库备份 → 更多 EXIF 字段编辑 → 便携版与安装版数据迁移工具
 - 若新增前端交互，请同步扩展 `scripts/ui-smoke.cjs` 覆盖
 - 若修 bug，按 AGENTS.md 先补 node:test 回归测试

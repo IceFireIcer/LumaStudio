@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.2.1
+
+### 中文
+- **多开支持**：检测到已有实例时新实例弹原生对话框，可选「关闭新实例」或「多开新窗口」（自动换端口启动、共享同一数据目录，适合「只看不编」的浏览场景）
+- **文件级写锁**：多开共享数据时，`db.json` / `drafts.json` / `settings.json` / 任务状态写入均加文件锁，另一实例持锁时写请求返回 409 提示；残留锁（进程已退出/超时）自动接管
+- **本地访问令牌**：首启生成随机令牌存 `settings.json`，写请求须携带 `X-Luma-Token`（Electron 生产默认启用，测试/纯浏览器不强制）；设置页可查看 / 复制 / 重新生成
+- **批量任务落盘**：任务状态写入 `jobs.json`，重启后恢复历史任务记录；重启时仍在运行的任务标记为「中断」并保留进度（不自动续跑）
+- **性能优化**：批量处理改为 2 路有限并发（吞吐提升同时控制 sharp 内存峰值）；日志页刷新间隔可设置（3 / 10 / 30 秒，默认 3）；sharp 内部缓存仅在 Windows 上禁用（避免文件句柄锁定），其他平台启用默认缓存
+- **错误体验**：损坏 / 动画 WebP 或损坏 PNG 写 EXIF 的 400 文案改为友好提示「不支持写入 EXIF，原文件未改动」；端口占用等启动失败弹原生错误窗（不再静默退出）
+- 版本号同步至 v1.2.1（package.json / package-lock.json / server-app.cjs 默认值 / 关于页）
+
+### English
+- **Multi-open support**: when another instance is detected, the new instance shows a native dialog with "Close new instance" or "Open a second window" (auto-selects a free port, shares the same data directory — suited for read-only browsing)
+- **Per-file write locks**: when multiple instances share the data directory, writes to `db.json` / `drafts.json` / `settings.json` / job state are guarded by file locks; a write while another instance holds the lock returns 409 with a friendly message; stale locks (dead pid / timeout) are taken over automatically
+- **Local access token**: a random token is generated on first run and stored in `settings.json`; write requests must carry `X-Luma-Token` (enforced in Electron production by default; not enforced in tests / pure browser); the Settings page can view / copy / regenerate the token
+- **Batch job persistence**: job state is written to `jobs.json` and restored after restart; jobs still running at restart are marked "interrupted" with progress kept (no auto-resume)
+- **Performance**: batch processing now uses 2-way limited concurrency (higher throughput while capping sharp memory); the logs page refresh interval is configurable (3 / 10 / 30 s, default 3); sharp's internal cache is disabled only on Windows (to avoid file-handle locking) and enabled elsewhere
+- **Better errors**: EXIF writes to broken / animated WebP or broken PNG now return a friendly 400 "unsupported, original file unchanged"; startup failures (e.g. port in use) show a native error dialog instead of silently quitting
+- Version bumped to v1.2.1 (package.json / package-lock.json / server-app.cjs default / About page)
+
+### Notes
+- Multi-open with a shared data directory is primarily for browsing; concurrent edits from two instances are de-conflicted by write locks but should still be avoided
+- Token enforcement is on by default only in the packaged Electron app; the node test suite and UI smoke run with it disabled to preserve existing coverage
+
+### Release Assets
+- `Luma Studio Setup 1.2.1.exe` — Windows 安装版（推荐大多数用户）
+- `Luma Studio 1.2.1.exe` — Windows 便携版（免安装，数据跟随 exe）
+
+---
+
 ## v1.2.0
 
 ### 中文
