@@ -84,19 +84,20 @@ async function makeNoiseJpeg(withExif = false) {
   return buf;
 }
 
-function startServer() {
+function startServer(opts = {}) {
   const d = tmpdir();
   const dirs = {
     uploads: path.join(d, 'uploads'),
     thumbs: path.join(d, 'thumbs'),
     data: path.join(d, 'data'),
   };
-  const { app, getDb } = createAppServer({
+  const { app, getDb, getAuthToken } = createAppServer({
     port: 0,
     dirs,
     logDir: path.join(d, 'log'),
     publicDir: path.join(ROOT, 'public'),
     version: '1.0.7-test',
+    requireToken: opts.requireToken === true,
   });
   return new Promise(resolve => {
     const srv = app.listen(0, '127.0.0.1', () => {
@@ -106,6 +107,7 @@ function startServer() {
         d,
         dirs,
         getDb,
+        getAuthToken,
       });
     });
   });
@@ -566,6 +568,8 @@ test('HTTP: 损坏的 WebP/PNG 写入 EXIF 安全拒绝且原文件不变', asyn
         body: JSON.stringify({ artist: 'x' }),
       });
       assert.equal(w.status, 400, `${name} 损坏文件应返回 400`);
+      const wBody = await w.json();
+      assert.ok(String(wBody.error).includes('不支持写入 EXIF'), `${name} 错误信息应说明不支持写入`);
       assert.ok(fs.readFileSync(full).equals(broken), `${name} 原文件不应被改写`);
     }
   } finally {
@@ -803,15 +807,18 @@ test('sanitizeSettings: v1.2 新键校验与默认值', () => {
   assert.equal(s.theme, 'light');
   assert.equal(s.reduceMotion, 'system');
   assert.equal(s.slideshowInterval, 3);
-  const ok = sanitizeSettings({ theme: 'dark', reduceMotion: 'on', slideshowInterval: 10 });
+  assert.equal(s.logsRefreshInterval, 3, '默认日志刷新间隔为 3');
+  const ok = sanitizeSettings({ theme: 'dark', reduceMotion: 'on', slideshowInterval: 10, logsRefreshInterval: 30 });
   assert.equal(ok.theme, 'dark');
   assert.equal(ok.reduceMotion, 'on');
   assert.equal(ok.slideshowInterval, 10);
+  assert.equal(ok.logsRefreshInterval, 30);
   // 非法值回退默认
-  const bad = sanitizeSettings({ theme: 'blue', reduceMotion: 'sometimes', slideshowInterval: 7 });
+  const bad = sanitizeSettings({ theme: 'blue', reduceMotion: 'sometimes', slideshowInterval: 7, logsRefreshInterval: 999 });
   assert.equal(bad.theme, 'light');
   assert.equal(bad.reduceMotion, 'system');
   assert.equal(bad.slideshowInterval, 3);
+  assert.equal(bad.logsRefreshInterval, 3);
 });
 
 test('runPipeline: 旧请求无新参数时结果与 v1.1.0 一致（缺省=默认）', async () => {
@@ -972,6 +979,232 @@ test('HTTP: EXIF 方向照片入库宽高为旋转后的显示尺寸（与缩略
     // 缩略图宽高比与入库宽高比一致（前端瀑布流按此排版，不一致会重叠）
     const thumb = await sharp(path.join(dirs.thumbs, p.id + '.webp')).metadata();
     assert.equal(thumb.width / thumb.height, p.width / p.height, '缩略图比例应与入库宽高比一致');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+/* ============ v1.2.1：本地访问令牌 ============ */
+test('HTTP: 本地 Token——无令牌写请求返回 401，GET 不受影响', async () => {
+  const { srv, base } = await startServer({ requireToken: true });
+  try {
+    // 写请求无令牌 → 401
+    const noToken = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultQuality: 90 }),
+    });
+    assert.equal(noToken.status, 401);
+    // GET 不受令牌校验影响
+    const stats = await fetch(`${base}/api/stats`);
+    assert.equal(stats.status, 200);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 本地 Token——带正确令牌可写，错误令牌 401，重置后旧令牌失效', async () => {
+  const { srv, base, getAuthToken } = await startServer({ requireToken: true });
+  try {
+    const token = getAuthToken();
+    assert.ok(token && token.length >= 16, '首启应生成随机令牌');
+    // 正确令牌 → 写成功
+    const ok = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Luma-Token': token },
+      body: JSON.stringify({ defaultQuality: 90 }),
+    });
+    assert.equal(ok.status, 200);
+    // 错误令牌 → 401
+    const bad = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Luma-Token': 'wrong-token' },
+      body: JSON.stringify({ defaultQuality: 90 }),
+    });
+    assert.equal(bad.status, 401);
+    // 重置令牌 → 返回新令牌，旧令牌立即失效
+    const reset = await (await fetch(`${base}/api/auth/reset-token`, {
+      method: 'POST',
+      headers: { 'X-Luma-Token': token },
+    })).json();
+    assert.equal(reset.ok, true);
+    assert.ok(reset.token && reset.token !== token, '重置应生成不同令牌');
+    const oldStillWorks = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Luma-Token': token },
+      body: JSON.stringify({ defaultQuality: 91 }),
+    });
+    assert.equal(oldStillWorks.status, 401, '旧令牌应失效');
+    const newWorks = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Luma-Token': reset.token },
+      body: JSON.stringify({ defaultQuality: 91 }),
+    });
+    assert.equal(newWorks.status, 200, '新令牌应生效');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 本地 Token——默认（非 Electron）不强制校验，旧行为保持', async () => {
+  const { srv, base, d } = await startServer(); // requireToken 默认 false
+  try {
+    const r = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultQuality: 88 }),
+    });
+    assert.equal(r.status, 200, '默认不应要求令牌');
+    // 令牌仍持久化在 settings.json（Electron 生产场景经 preload 读取）
+    const settings = JSON.parse(fs.readFileSync(path.join(d, 'data', 'settings.json'), 'utf8'));
+    assert.ok(settings.authToken && settings.authToken.length >= 16, 'settings.json 应保存令牌');
+    // 令牌不应出现在公开的 /api/settings 返回中（避免泄露到页面）
+    const pub = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(pub.authToken, undefined, '公开设置不应包含令牌');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+/* ============ v1.2.1：文件级写锁（多开共享数据冲突兜底） ============ */
+test('HTTP: 写锁——他人持锁时写请求返回 409，锁释放后可正常写', async () => {
+  const { srv, base, d } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'lock.jpg');
+    const id = up.added[0].id;
+    const dbFile = path.join(d, 'data', 'db.json');
+    const lockFile = dbFile + '.lock';
+    // 模拟另一活跃实例持有 db.json 写锁
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, time: Date.now() }));
+    const r = await fetch(`${base}/api/photos/${id}/stars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stars: 4 }),
+    });
+    assert.equal(r.status, 409, '他人持锁时应返回写冲突');
+    const body = await r.json();
+    assert.ok(String(body.error).includes('另一实例正在写入'), '错误信息应说明写冲突');
+    // 释放锁后可正常写
+    fs.unlinkSync(lockFile);
+    const ok = await fetch(`${base}/api/photos/${id}/stars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stars: 4 }),
+    });
+    assert.equal(ok.status, 200, '锁释放后应可正常写入');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 写锁——残留锁（进程已退出）可被接管', async () => {
+  const { srv, base, d } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'lock2.jpg');
+    const id = up.added[0].id;
+    const dbFile = path.join(d, 'data', 'db.json');
+    const lockFile = dbFile + '.lock';
+    // 模拟已退出进程的残留锁：pid 指向不存在的进程（999999）且时间戳新 → 应判定 pid 已死并接管
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999999, time: Date.now() }));
+    const r = await fetch(`${base}/api/photos/${id}/stars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stars: 5 }),
+    });
+    assert.equal(r.status, 200, '残留锁应被接管，写入成功');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+/* ============ v1.2.1：批量任务落盘 + 重启恢复 ============ */
+test('HTTP: 批量任务落盘——完成后重启可恢复任务记录', async () => {
+  const d = tmpdir();
+  const dirs = {
+    uploads: path.join(d, 'uploads'),
+    thumbs: path.join(d, 'thumbs'),
+    data: path.join(d, 'data'),
+  };
+  const mk = () => {
+    const { app } = createAppServer({
+      port: 0, dirs, logDir: path.join(d, 'log'),
+      publicDir: path.join(ROOT, 'public'), version: '1.0.7-test',
+    });
+    return new Promise(resolve => {
+      const srv = app.listen(0, '127.0.0.1', () =>
+        resolve({ srv, base: `http://127.0.0.1:${srv.address().port}` }));
+    });
+  };
+  const { srv, base } = await mk();
+  let jobId;
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(false), 'jobp.jpg');
+    const r = await fetch(`${base}/api/photos/batch/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [up.added[0].id], pipeline: {}, mode: 'copy' }),
+    });
+    const jr = await r.json();
+    jobId = jr.jobId;
+    const done = await waitJob(base, jobId);
+    assert.equal(done.status, 'done');
+  } finally {
+    await closeServer(srv);
+  }
+  // 模拟重启：用同一数据目录再启动一个服务器
+  const jobsFile = path.join(d, 'data', 'jobs.json');
+  assert.ok(fs.existsSync(jobsFile), '任务状态应落盘到 jobs.json');
+  const saved = JSON.parse(fs.readFileSync(jobsFile, 'utf8'));
+  assert.equal(Array.isArray(saved), true);
+  const { srv: srv2, base: base2 } = await mk();
+  try {
+    const restored = await (await fetch(`${base2}/api/jobs/${jobId}`)).json();
+    assert.equal(restored.status, 'done', '重启后应能查询到已完成任务');
+    assert.equal(restored.total, 1);
+  } finally {
+    await closeServer(srv2);
+  }
+});
+
+test('HTTP: 批量任务落盘——重启时 running 任务标记为中断（不自动续跑）', async () => {
+  const d = tmpdir();
+  const dirs = {
+    uploads: path.join(d, 'uploads'),
+    thumbs: path.join(d, 'thumbs'),
+    data: path.join(d, 'data'),
+  };
+  const mk = () => {
+    const { app } = createAppServer({
+      port: 0, dirs, logDir: path.join(d, 'log'),
+      publicDir: path.join(ROOT, 'public'), version: '1.0.7-test',
+    });
+    return new Promise(resolve => {
+      const srv = app.listen(0, '127.0.0.1', () =>
+        resolve({ srv, base: `http://127.0.0.1:${srv.address().port}` }));
+    });
+  };
+  // 直接写入一个 running 任务到 jobs.json（模拟崩溃时遗留）
+  fs.mkdirSync(path.join(d, 'data'), { recursive: true });
+  const runningJob = {
+    id: 'interrupted-1',
+    type: 'batch-process',
+    status: 'running',
+    total: 5, done: 2, current: { id: 'x', name: 'a.jpg' },
+    results: [], errors: [], canceled: false, error: null,
+    payload: { ids: ['a', 'b', 'c', 'd', 'e'], pipeline: {}, mode: 'copy' },
+    createdAt: Date.now(),
+  };
+  fs.writeFileSync(path.join(d, 'data', 'jobs.json'), JSON.stringify([runningJob]));
+  const { srv, base } = await mk();
+  try {
+    const restored = await (await fetch(`${base}/api/jobs/interrupted-1`)).json();
+    assert.equal(restored.status, 'error', '重启时 running 任务应标记为 error');
+    assert.ok(String(restored.error).includes('中断'), '错误信息应说明任务中断');
+    assert.equal(restored.done, 2, '应保留已处理进度');
+    // 不应自动续跑：done 不会增长
+    await new Promise(r => setTimeout(r, 300));
+    const again = await (await fetch(`${base}/api/jobs/interrupted-1`)).json();
+    assert.equal(again.done, 2, '中断任务不应自动续跑');
   } finally {
     await closeServer(srv);
   }

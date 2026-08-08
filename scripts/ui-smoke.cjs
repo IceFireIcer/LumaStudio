@@ -72,6 +72,10 @@ app.whenReady().then(async () => {
     fd.append('photos', new Blob([jpeg], { type: 'image/jpeg' }), 'smoke-d.jpg');
     fd.append('photos', new Blob([orieBuf], { type: 'image/jpeg' }), 'smoke-orie-a.jpg');
     fd.append('photos', new Blob([orieBuf], { type: 'image/jpeg' }), 'smoke-orie-b.jpg');
+    const webp = await sharp({
+      create: { width: 400, height: 300, channels: 3, background: { r: 80, g: 120, b: 200 } },
+    }).webp({ quality: 85 }).toBuffer();
+    fd.append('photos', new Blob([webp], { type: 'image/webp' }), 'smoke-webp.webp');
     await fetch(`http://127.0.0.1:${port}/api/upload`, { method: 'POST', body: fd });
     const errors = [];
     const win = new BrowserWindow({
@@ -495,6 +499,34 @@ app.whenReady().then(async () => {
           } catch (e) { return 'draft-error:' + e.message; }
         })()`);
         console.log('DRAFT ' + draftFlow);
+
+        // 回归：损坏 WebP 写 EXIF 应返回 400 且给出友好文案（v1.2.1）
+        // 主进程先截断 WebP 文件模拟损坏，渲染进程再发起写 EXIF，最后恢复原文件。
+        let webp400 = 'webp400-error:no-setup';
+        try {
+          const dbJson = JSON.parse(fs.readFileSync(path.join(d, 'data', 'db.json'), 'utf8'));
+          const webpPhoto = (dbJson.photos || []).find(p => /\.webp$/i.test(p.file));
+          if (webpPhoto) {
+            const full = path.join(d, 'uploads', webpPhoto.file);
+            const original = fs.readFileSync(full);
+            fs.writeFileSync(full, original.subarray(0, Math.floor(original.length / 2))); // 截断模拟损坏
+            webp400 = await win.webContents.executeJavaScript(`(async function(){
+              try {
+                const r = await fetch('/api/photos/${webpPhoto.id}/exif', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ artist: 'smoke' }),
+                });
+                const body = await r.json().catch(() => ({}));
+                return 'webp400-ok status=' + r.status +
+                  ' friendly=' + String(body.error || '').includes('不支持写入 EXIF') +
+                  ' msg=' + (body.error || '');
+              } catch (e) { return 'webp400-error:' + e.message; }
+            })()`);
+            fs.writeFileSync(full, original); // 恢复原文件
+          }
+        } catch (e) { webp400 = 'webp400-error:' + e.message; }
+        console.log('WEBP400 ' + webp400);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }
