@@ -716,15 +716,18 @@ html[data-theme="dark"] .log-badge-debug{background:rgba(129,140,248,.18);color:
 
 /* 快捷键速查浮层 */
 .shortcut-modal .modal-content{max-width:660px;max-height:82vh;display:flex;flex-direction:column}
+/* modal-body 允许在 flex 列中收缩（min-height:0），否则内部列表超高时不会滚动而是整体溢出 */
+.shortcut-modal .modal-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .shortcut-search{width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius-xs);
-  background:var(--bg-soft);color:var(--text);font-size:14px;font-family:inherit}
+  background:var(--bg-soft);color:var(--text);font-size:14px;font-family:inherit;flex-shrink:0}
 .shortcut-search:focus{outline:none;border-color:var(--accent)}
-.shortcut-list{overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px;padding-right:4px}
+.shortcut-list{overflow-y:auto;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:14px;padding-right:4px}
 .shortcut-group h4{font-size:13px;font-weight:600;color:var(--text-soft);margin-bottom:6px}
-.shortcut-item{display:flex;justify-content:space-between;align-items:center;gap:16px;
+.shortcut-item{display:flex;justify-content:space-between;align-items:center;gap:16px;min-width:0;
   font-size:13px;padding:4px 0;color:var(--text)}
-.shortcut-item .sc-name{color:var(--text-soft)}
-.shortcut-keys{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+/* 说明文字占满剩余空间并允许换行收缩，避免长文本把行撑出容器（文字飘出） */
+.shortcut-item .sc-name{flex:1 1 auto;min-width:0;color:var(--text-soft);overflow-wrap:break-word}
+.shortcut-keys{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0}
 .shortcut-keys kbd{background:var(--bg-soft2);border:1px solid var(--line);border-bottom-width:2px;
   border-radius:6px;padding:2px 7px;font-family:inherit;font-size:12px;color:var(--text);white-space:nowrap}
 

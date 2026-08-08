@@ -334,6 +334,17 @@ app.whenReady().then(async () => {
             await new Promise(r => setTimeout(r, 300));
             const opened = !document.getElementById('shortcutModal').hidden &&
               document.getElementById('shortcutList').children.length > 0;
+            // 回归：说明文字不得横向溢出容器（曾有长文本把行撑出模态框、文字"飘出去"）
+            const content = document.querySelector('.shortcut-modal .modal-content');
+            const overflow = (() => {
+              const out = [];
+              const cw = content.getBoundingClientRect();
+              document.querySelectorAll('#shortcutList .shortcut-item').forEach(row => {
+                const r = row.getBoundingClientRect();
+                if (r.right > cw.right + 0.5 || r.left < cw.left - 0.5) out.push(row.textContent.trim().slice(0, 20));
+              });
+              return out;
+            })();
             const search = document.getElementById('shortcutSearch');
             search.value = '缩放';
             search.dispatchEvent(new Event('input', { bubbles: true }));
@@ -343,6 +354,7 @@ app.whenReady().then(async () => {
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
             await new Promise(r => setTimeout(r, 400));
             return 'shortcut-ok opened=' + opened + ' filteredGroups=' + groups +
+              ' overflow=' + JSON.stringify(overflow) +
               ' closed=' + document.getElementById('shortcutModal').hidden;
           } catch (e) { return 'shortcut-error:' + e.message; }
         })()`);
