@@ -137,21 +137,29 @@ npm run electron
 
 ```
 .
-├── server-app.cjs          # Express 后端 + sharp 图像管线 + REST API
-├── electron-main.cjs       # Electron 主进程
+├── server-app.cjs          # Express 后端 + sharp 图像管线 + REST API（唯一事实来源）
+├── electron-main.cjs       # Electron 主进程（数据目录/迁移/单实例锁多开/OOBE/服务器窗口）
 ├── electron-launch.cjs     # Electron 启动器
+├── preload.cjs             # contextBridge preload（openDataDir / getToken）
 ├── public/
 │   ├── index.html          # SPA 外壳
-│   ├── style.css           # 设计系统
-│   └── app.js              # 前端逻辑
+│   ├── style.css           # 设计系统（token 化，含深色模式）
+│   ├── app.js              # 前端逻辑
+│   ├── ui-anim.js          # GSAP 动画层（window.UIAnim）
+│   └── vendor/gsap/        # 本地 GSAP（含 FlipPlugin）
+├── scripts/ui-smoke.cjs    # UI 冒烟测试（真实 Electron）
+├── test/server.test.cjs    # 回归测试（node:test，44 个）
+├── docs/                   # 设计规格（ui-redesign.md）
+├── build/installer/        # Inno Setup 安装脚本
 ├── storage/                # 运行时数据（userData）
-├── test/                   # 回归测试（node:test）
 └── package.json
 ```
 
 ---
 
 ## API 参考
+
+### 照片与文件
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
@@ -167,16 +175,18 @@ npm run electron
 | `POST` | `/api/photos/:id/render` | 应用编辑并返回字节 |
 | `POST` | `/api/photos/:id/preview` | 预估输出体积 |
 | `POST` | `/api/photos/:id/rename` | 重命名照片 |
-| `GET` | `/api/settings` | 获取设置 |
-| `POST` | `/api/settings` | 更新设置 |
+| `POST` | `/api/photos/:id/stars` | 设置评分（0–5） |
+| `POST` | `/api/photos/:id/flag` | 设置标记（`pick` / `reject` / `null`） |
 | `PUT` | `/api/photos/:id/draft` | 保存编辑草稿 |
 | `GET` | `/api/photos/:id/draft` | 读取编辑草稿（无草稿返回 404） |
 | `DELETE` | `/api/photos/:id/draft` | 清除编辑草稿 |
-| `GET` | `/api/stats` | 存储统计 |
-| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`） |
-| `GET` | `/api/info` | 系统信息 |
-| `POST` | `/api/photos/:id/stars` | 设置评分（0–5） |
-| `POST` | `/api/photos/:id/flag` | 设置标记（`pick` / `reject` / `null`） |
+| `GET` | `/files/:file` | 获取原图（`?download=1` 强制下载） |
+| `GET` | `/thumbs/:id.webp` | 获取缩略图 |
+
+### 批量处理与后台任务
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
 | `POST` | `/api/photos/batch/stars` | 批量评分 `{ ids, stars }` |
 | `POST` | `/api/photos/batch/flag` | 批量标记 `{ ids, flag }` |
 | `POST` | `/api/photos/batch/delete` | 批量删除 `{ ids }` |
@@ -184,15 +194,35 @@ npm run electron
 | `GET` | `/api/jobs/:id` | 查询后台任务进度 |
 | `POST` | `/api/jobs/:id/cancel` | 取消后台任务 |
 | `POST` | `/api/photos/download-zip` | 打包下载 ZIP `{ ids }` |
-| `POST` | `/api/auth/reset-token` | 重置本地访问令牌（需持旧令牌） |
+
+### 搜索 / 设置 / 系统 / 日志
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`） |
+| `GET` | `/api/settings` | 获取设置 |
+| `POST` | `/api/settings` | 更新设置 |
+| `GET` | `/api/stats` | 存储统计（含 `dataDir`） |
+| `GET` | `/api/info` | 系统信息 |
+| `GET` | `/api/logs` | 读取日志（`level` / `source` / `limit` 过滤） |
+| `POST` | `/api/logs/clear` | 清空日志（含轮转备份） |
+| `GET` | `/api/logs/info` | 日志文件路径信息 |
+| `POST` | `/api/logs/frontend` | 前端日志上报 |
+
+### 收藏夹 / 认证 / OOBE
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
 | `GET` | `/api/albums` | 获取收藏夹列表（含首图封面 `cover`） |
 | `POST` | `/api/albums` | 创建收藏夹 `{ name }` |
 | `DELETE` | `/api/albums/:id` | 删除收藏夹 |
 | `POST` | `/api/albums/:id/rename` | 重命名收藏夹 |
 | `POST` | `/api/albums/:id/add` | 添加照片 `{ ids }` |
 | `POST` | `/api/albums/:id/remove` | 移除照片 `{ ids }` |
-| `GET` | `/files/:file` | 获取原图（`?download=1` 强制下载） |
-| `GET` | `/thumbs/:id.webp` | 获取缩略图 |
+| `POST` | `/api/auth/reset-token` | 重置本地访问令牌（需持旧令牌） |
+| `GET` | `/api/oobe/status` | 读取 OOBE 完成状态（桌面端注册表） |
+| `POST` | `/api/oobe/complete` | 标记 OOBE 完成 |
+| `POST` | `/api/oobe/reset` | 重置 OOBE 引导 |
 
 ### Process / Render 请求体
 
@@ -221,8 +251,10 @@ npm run electron
 | EXIF 写入 | [piexifjs](https://github.com/hMatoba/piexifjs) |
 | 文件上传 | [multer](https://github.com/expressjs/multer) |
 | ZIP 打包 | [yazl](https://github.com/thejoshwolfe/yazl) |
+| ID 生成 | [nanoid](https://github.com/ai/nanoid) |
 | 桌面版 | [Electron](https://www.electronjs.org/) |
 | 前端 | 原生 JavaScript / HTML / CSS（零框架、零构建步骤） |
+| 数据存储 | JSON 文件（`db.json` / `settings.json` / `drafts.json` / `jobs.json`），无需数据库 |
 
 ---
 

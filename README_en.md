@@ -51,7 +51,7 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 ### Metadata (EXIF)
 - View camera, lens, aperture, shutter, ISO, focal length, GPS, and more
 - **Grouped display (v1.2)**: Camera / Capture / Time / File / GPS sections; one-click value copy, Amap and Google Maps links for GPS
-- Edit Artist / Copyright / Description / Date (JPEG only) — full **UTF-8 / CJK support**
+- Edit Artist / Copyright / Description / Date (JPEG / PNG / WebP) — full **UTF-8 / CJK support**, lossless writes
 - One-click **strip all metadata** for privacy
 
 ### Photo Culling
@@ -137,15 +137,21 @@ npm run electron
 
 ```
 .
-├── server-app.cjs          # Express backend + sharp pipeline + REST API
-├── electron-main.cjs       # Electron main process
+├── server-app.cjs          # Express backend + sharp pipeline + REST API (single source of truth)
+├── electron-main.cjs       # Electron main process (data dir / migration / multi-open / OOBE / server & window)
 ├── electron-launch.cjs     # Electron launcher
+├── preload.cjs             # contextBridge preload (openDataDir / getToken)
 ├── public/
 │   ├── index.html          # SPA shell
-│   ├── style.css           # Design system
-│   └── app.js              # Front-end logic
+│   ├── style.css           # Design system (tokenized, dark mode)
+│   ├── app.js              # Front-end logic
+│   ├── ui-anim.js          # GSAP animation layer (window.UIAnim)
+│   └── vendor/gsap/        # Local GSAP (incl. FlipPlugin)
+├── scripts/ui-smoke.cjs    # UI smoke test (real Electron)
+├── test/server.test.cjs    # Regression tests (node:test, 44 tests)
+├── docs/                   # Design spec (ui-redesign.md)
+├── build/installer/        # Inno Setup installer scripts
 ├── storage/                # Runtime data (userData)
-├── test/                   # Regression tests (node:test)
 └── package.json
 ```
 
@@ -157,6 +163,8 @@ Luma Studio uses **plain JSON files** for all data — no database server requir
 
 - `storage/data/db.json` — Photos metadata and album collections
 - `storage/data/settings.json` — User preferences and runtime settings
+- `storage/data/drafts.json` — Edit drafts (v1.2)
+- `storage/data/jobs.json` — Batch job state (v1.2.1)
 
 All photos are stored as real files in `storage/uploads/`, thumbnails in `storage/thumbs/`. Delete the `storage/` folder to reset everything.
 
@@ -175,11 +183,13 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | ID generation | [nanoid](https://github.com/ai/nanoid) |
 | Desktop | [Electron](https://www.electronjs.org/) |
 | Front-end | Vanilla JavaScript / HTML / CSS (zero framework, zero build step) |
-| Data storage | JSON files (`db.json`, `settings.json`) — no database required |
+| Data storage | JSON files (`db.json`, `settings.json`, `drafts.json`, `jobs.json`) — no database required |
 
 ---
 
 ## API Reference
+
+### Photos & Files
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -189,22 +199,24 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `DELETE` | `/api/photos/:id` | Delete one photo |
 | `DELETE` | `/api/photos` | Delete all photos |
 | `GET` | `/api/photos/:id/exif` | Read EXIF |
-| `POST` | `/api/photos/:id/exif` | Write EXIF (JPEG) |
+| `POST` | `/api/photos/:id/exif` | Write EXIF (JPEG / PNG / WebP) |
 | `POST` | `/api/photos/:id/strip-exif` | Strip all metadata |
 | `POST` | `/api/photos/:id/process` | Apply edits & save |
 | `POST` | `/api/photos/:id/render` | Apply edits & return bytes |
 | `POST` | `/api/photos/:id/preview` | Estimate output size |
 | `POST` | `/api/photos/:id/rename` | Rename photo |
-| `GET` | `/api/settings` | Get settings |
-| `POST` | `/api/settings` | Update settings |
+| `POST` | `/api/photos/:id/stars` | Set stars (0–5) |
+| `POST` | `/api/photos/:id/flag` | Set flag (`pick` / `reject` / `null`) |
 | `PUT` | `/api/photos/:id/draft` | Save the edit draft |
 | `GET` | `/api/photos/:id/draft` | Read the edit draft (404 when none) |
 | `DELETE` | `/api/photos/:id/draft` | Clear the edit draft |
-| `GET` | `/api/stats` | Storage statistics |
-| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`) |
-| `GET` | `/api/info` | System info |
-| `POST` | `/api/photos/:id/stars` | Set stars (0–5) |
-| `POST` | `/api/photos/:id/flag` | Set flag (`pick` / `reject` / `null`) |
+| `GET` | `/files/:file` | Serve original (`?download=1` to force download) |
+| `GET` | `/thumbs/:id.webp` | Serve thumbnail |
+
+### Batch & Background Jobs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `POST` | `/api/photos/batch/stars` | Batch stars `{ ids, stars }` |
 | `POST` | `/api/photos/batch/flag` | Batch flag `{ ids, flag }` |
 | `POST` | `/api/photos/batch/delete` | Batch delete `{ ids }` |
@@ -212,15 +224,35 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `GET` | `/api/jobs/:id` | Query background job progress |
 | `POST` | `/api/jobs/:id/cancel` | Cancel a background job |
 | `POST` | `/api/photos/download-zip` | Download as ZIP `{ ids }` |
-| `POST` | `/api/auth/reset-token` | Reset the local access token (old token required) |
+
+### Search / Settings / System / Logs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`) |
+| `GET` | `/api/settings` | Get settings |
+| `POST` | `/api/settings` | Update settings |
+| `GET` | `/api/stats` | Storage statistics (incl. `dataDir`) |
+| `GET` | `/api/info` | System info |
+| `GET` | `/api/logs` | Read logs (`level` / `source` / `limit` filters) |
+| `POST` | `/api/logs/clear` | Clear logs (incl. rotated backups) |
+| `GET` | `/api/logs/info` | Log file path info |
+| `POST` | `/api/logs/frontend` | Report frontend log |
+
+### Albums / Auth / OOBE
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `GET` | `/api/albums` | List albums (each with first-photo `cover`) |
 | `POST` | `/api/albums` | Create album `{ name }` |
 | `DELETE` | `/api/albums/:id` | Delete album |
 | `POST` | `/api/albums/:id/rename` | Rename album |
 | `POST` | `/api/albums/:id/add` | Add photos `{ ids }` |
 | `POST` | `/api/albums/:id/remove` | Remove photos `{ ids }` |
-| `GET` | `/files/:file` | Serve original (`?download=1` to force download) |
-| `GET` | `/thumbs/:id.webp` | Serve thumbnail |
+| `POST` | `/api/auth/reset-token` | Reset the local access token (old token required) |
+| `GET` | `/api/oobe/status` | Read OOBE completion status (desktop registry) |
+| `POST` | `/api/oobe/complete` | Mark OOBE complete |
+| `POST` | `/api/oobe/reset` | Reset OOBE onboarding |
 
 ### Process / Render body
 
@@ -241,7 +273,7 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 
 ## Notes
 
-- **EXIF writing** supports JPEG / PNG / WebP (lossless chunk-level writes). UTF-8 / CJK text is preserved.
+- **EXIF writing** supports JPEG / PNG / WebP: JPEG via the APP1 segment, PNG / WebP via lossless chunk-level writes. UTF-8 / CJK text is preserved.
 - On **Windows**, sharp cache is disabled (`sharp.cache(false)`) to avoid file-handle locks; other platforms use the default cache.
 - **Security**: the desktop build validates a local access token (`X-Luma-Token`, viewable/regenerable in Settings) for write requests. Still designed for local / personal use — don't expose to the public internet without a reverse proxy.
 - **Multi-open**: a second instance shares the same data directory and is suited for read-only browsing; concurrent edits from two instances should still be avoided (write locks only guard momentary write conflicts).

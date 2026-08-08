@@ -7,22 +7,23 @@
 
 - **项目**：Luma Studio · 光影工作室 —— 自托管桌面版图片查看器与 Lightroom 风格编辑器
 - **形态**：Electron 桌面应用（Node.js + Express 后端，sharp/libvips 图像管线，原生 HTML/CSS/JS 前端，零构建步骤）
-- **仓库**：https://github.com/IceFireIcer/LumaStudio ，单一分支 `main`（git 仓库根 = 本目录）
+- **仓库**：https://github.com/IceFireIcer/LumaStudio 。**单一分支 `main`**，源码位于 `main/` 目录（这是一个 git worktree，`main/.git` 指向上级主仓库 `D:\Code\CherryStudio\LumaStudio\.git\worktrees\electron`）。上级主仓库还有一个空的 `master` 主分支，只挂载 worktree，**勿在其上直接开发**，一切在 `main/` 内进行
 - **当前版本**：v1.2.1（2026-08-08 已发布，tag `v1.2.1`，GitHub Release 含安装版/便携版产物），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
-- **最近版本发布提交**：v1.2.1 随 `044e205`（docs）发布；v1.2.0 为 `527e621` release: 发布 v1.2.0；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
+- **最近版本发布提交**：v1.2.1 随 `044e205`（docs）发布；v1.2.0 为 `527e621` release: 发布 v1.2.0；v1.2 规格见 `docs/ui-redesign.md`（评审通过后已实现，作为该批次事实来源），最新 HEAD 以 `git log` 为准
 - **README 政策（v1.1.0 起）**：仅保留中文主文档 `README.md` 与英文版 `README_en.md`，de/es/fr/ja/ko 变体已移除，勿再新增
 
-## 2. 代码结构（仓库根）
+## 2. 代码结构（仓库根 = `main/`）
 
 | 文件 | 职责 |
 |---|---|
-| `server-app.cjs` | 唯一事实来源：Express 应用、图像处理管线、日志、EXIF 读写、PNG/WebP chunk 写入、相册/批量/后台任务/ZIP/搜索等全部 REST API |
-| `electron-main.cjs` | Electron 主进程：数据目录解析（便携版/安装版）、单实例锁、OOBE 注册表、启动服务器与窗口 |
+| `server-app.cjs` | 唯一事实来源：Express 应用、图像处理管线、日志、EXIF 读写、PNG/WebP chunk 写入、相册/批量/后台任务/ZIP/搜索等全部 REST API；模块导出见文件末尾 `module.exports`（含 `createAppServer`、`runPipeline`、`stripMetadata`、`sanitizeSettings`、`fixUploadName`、`readPngExif`、`writePngExif`、`readWebpChunks`、`readWebpExif`、`writeWebpExif`、`decodeExifText`、`readTiffTextTags`、`extractExifTiff`、`DEFAULT_SETTINGS` 等，供测试直接调用） |
+| `electron-main.cjs` | Electron 主进程：数据目录解析（便携版/安装版）、数据一次性迁移、单实例锁/多开、OOBE 注册表、IPC（`open-data-dir` / `get-auth-token`）、启动服务器与窗口 |
 | `preload.cjs` | Electron preload：`contextBridge` 暴露 `window.luma.openDataDir()`（打开数据目录，v1.2 新增）与 `window.luma.getToken()`（本地访问令牌，v1.2.1 新增） |
 | `electron-launch.cjs` | 启动器（spawn Electron，清理 `ELECTRON_RUN_AS_NODE` 污染） |
-| `public/` | 前端：`index.html` / `style.css` / `app.js` / `ui-anim.js`（GSAP 动画层）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
+| `public/` | 前端：`index.html` / `style.css`（token 化设计系统 + 深色模式）/ `app.js`（全部前端逻辑）/ `ui-anim.js`（GSAP 动画层，挂 `window.UIAnim`）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
 | `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互、v1.2 验收用例、EXIF 方向防重叠回归（`MASONRY`）与 v1.2.1 损坏 WebP 写 EXIF 回归（`WEBP400`），捕获渲染进程错误 |
 | `test/server.test.cjs` | node:test 回归测试（当前 44 个，全部通过） |
+| `docs/ui-redesign.md` | v1.2 UI/UX 改版设计规格（评审通过后已实现） |
 | `build/installer/` | Inno Setup 安装脚本（仓库源文件，勿删） |
 | `ROADMAP.md` / `CHANGELOG.md` / `README.md` / `README_en.md` / `AGENTS.md` / `handover.md` | 规划 / 版本日志 / 文档 / 仓库规范 / 本交接文档 |
 
@@ -82,7 +83,7 @@
 - PNG：`eXIf` chunk 插在 `IEND` 之前；WebP：`EXIF` chunk 必须放在**图像数据之后**，无 VP8X 时需新建 VP8X（EXIF 标志位 `0x08`，画布尺寸为 **24 位小端** `宽-1/高-1`）
 - **exifr 的 Node 版不读 WebP EXIF**（`Unknown file format`），读取路径用 `readPngExif/readWebpExif + piexif.load` 自解析
 - 损坏或不支持的变体（部分动画 WebP）会安全返回 400，不写坏原图
-- 相关函数：`readPngExif / writePngExif / readWebpChunks / readWebpExif / writeWebpExif / loadTiffFromChunk / crc32`（已导出，便于测试）
+- 相关函数（已导出，便于测试）：`readPngExif / writePngExif / readWebpChunks / readWebpExif / writeWebpExif / decodeExifText / readTiffTextTags / extractExifTiff`（内部工具 `crc32`、`loadTiffFromChunk` 未导出）
 
 ### 4.3 批量处理与后台任务（v1.1.0 引入，v1.2.1 更新）
 
@@ -117,10 +118,10 @@
 ## 5. 常见操作
 
 - **跑测试**：`npm test`（44 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归、EXIF 方向照片入库宽高回归、v1.2.1 令牌/写锁/任务落盘/WebP 400 回归）
-- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE dark-ok ...`、`SHORTCUTS shortcut-ok ...`、`CONFIRM confirm-ok ...`、`LB-ZOOM lbzoom-ok zoomed=true panned=true ...`、`UPLOAD-OVERLAY overlay-ok ...`、`FLIP-GRID flip-ok ...`、`DRAFT draft-ok saved=true afterExport=404`、`MASONRY masonry-ok cards=7 bad=[]`（EXIF 方向照片防重叠）、`WEBP400 webp400-ok status=400 friendly=true ...`（损坏 WebP 写 EXIF 友好提示）、`CONSOLE-ERRORS []`；脚本已加主进程未捕获异常兜底与 90s 看门狗；**运行前需清掉环境变量 `ELECTRON_RUN_AS_NODE`**（部分 shell 预设该变量会让 Electron 以 Node 模式启动、`app` 为 undefined）
+- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE`、`SHORTCUTS`、`CONFIRM`、`LB-ZOOM`、`UPLOAD-OVERLAY`、`FLIP-GRID`、`DRAFT`、`MASONRY`（EXIF 方向照片防重叠）、`WEBP400`（损坏 WebP 写 EXIF 友好提示）等标记与 `CONSOLE-ERRORS []`；完整标记清单见 `AGENTS.md` 测试节——成功标记：`UI-STATE`、`ANIM`、`MODAL`、`KEYDOWN`、`LAYOUT`、`NAV-EXIF`、`BA-COMPARE`、`LB-COMPARE`、`BATCH-UI`、`BATCH-DONE`、`BATCH-AFTER`、`TOGGLE-H`、`DARK-MODE`、`SHORTCUTS`、`CONFIRM`、`LB-ZOOM`、`UPLOAD-OVERLAY`、`DROP-ONCE`、`FLIP-GRID`、`ALBUM-BATCH`、`DRAFT`、`MASONRY`、`WEBP400`；失败标记：`SMOKE-REJECTION`、`SMOKE-TIMEOUT`、`SMOKE-UNCAUGHT`。脚本已加主进程未捕获异常兜底与 90s 看门狗；**运行前需清掉环境变量 `ELECTRON_RUN_AS_NODE`**（部分 shell 预设该变量会让 Electron 以 Node 模式启动、`app` 为 undefined）
 - **启动开发**：`npm start` / `npm run electron`
 - **构建**：`npm run build:win` → `release/`（NSIS + portable）
-- **发版流程**（每次一致）：改版本号（package.json + package-lock.json + server-app.cjs 默认值 + index.html 关于页）→ CHANGELOG 加条目（中文+English+Release Assets+Notes）→ `release:` 提交 → push main → `git tag -a vX.Y.Z` + push tag → `gh release create vX.Y.Z --title "Luma Studio vX.Y.Z 桌面版" --notes-file ... --latest`，产物按 `Luma.Studio.Setup.X.Y.Z.exe` / `Luma.Studio.X.Y.Z.exe` 命名上传
+- **发版流程**（每次一致）：改版本号（package.json + package-lock.json + server-app.cjs 默认值 + index.html 关于页）→ CHANGELOG 加条目（中文+English+Release Assets+Notes）→ `release:` 提交 → push main → `git tag -a vX.Y.Z` + push tag → `gh release create vX.Y.Z --title "Luma Studio vX.Y.Z 桌面版" --notes-file ... --latest`，产物按 `Luma Studio Setup X.Y.Z.exe` / `Luma Studio X.Y.Z.exe` 命名上传
 
 ## 6. 各种情况 / 注意事项
 
@@ -152,7 +153,7 @@
 1. **批量任务中断不自动续跑**：v1.2.1 已落盘 `jobs.json`，但重启时 running 任务只标记「中断」，需手动重跑；大任务中途退出损失进度
 2. **批量已生成结果不回滚**：覆盖模式下已写盘照片不会还原原图（`persistDBWithRetry` 只兜底 db 写入，不改文件）
 3. **多开并发编辑无强隔离**：写锁只挡同一瞬间的 db/draft 写冲突，两个实例同时编辑同一张照片仍可能互相覆盖
-4. **便携版 OOBE 写注册表**：grill 时已确认维持现状（已知取舍），便携版换电脑会带旧 OOBE 状态
+4. **便携版 OOBE 写注册表**：已确认维持现状（已知取舍），便携版换电脑会带旧 OOBE 状态
 5. **无公网认证**：仅本地令牌（Electron 生产写请求），暴露公网仍不安全
 
 ### 已接受的取舍（不建议改）
