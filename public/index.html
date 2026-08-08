@@ -105,6 +105,9 @@
           <option value="webp">WebP</option>
           <option value="gif">GIF</option>
         </select>
+        <select id="tagFilter" class="tb-select" title="按标签筛选">
+          <option value="">所有标签</option>
+        </select>
         <button class="tb-toggle" id="hideRejectBtn" title="隐藏排除照片 (H)">👁 隐藏排除</button>
         <span class="lib-count" id="libCount" hidden></span>
       </div>
@@ -118,6 +121,7 @@
         <button class="btn sm ghost" id="batchPick" title="标记精选">★ 精选</button>
         <button class="btn sm ghost" id="batchReject" title="标记排除">✗ 排除</button>
         <button class="btn sm ghost" id="batchRate" title="批量评分">评分</button>
+        <button class="btn sm ghost" id="batchTag" title="批量添加标签">🏷 标签</button>
         <div class="divider-v"></div>
         <button class="btn sm ghost" id="batchAlbum" title="添加到收藏夹">📁 收藏夹</button>
         <button class="btn sm ghost" id="batchProcess" title="批量处理：统一应用预设/缩放/格式/质量">⚙ 批量处理</button>
@@ -292,6 +296,15 @@
         <div class="exif-panel">
           <h2>元数据信息</h2>
           <div class="exif-list" id="exifList"></div>
+          <div class="divider"></div>
+          <h3>标签</h3>
+          <div class="tag-editor">
+            <div class="tag-chips" id="exifTagChips"></div>
+            <div class="tag-add">
+              <input id="exifTagInput" placeholder="输入标签,逗号分隔多个,回车添加" autocomplete="off">
+              <button class="btn sm ghost" id="exifTagAdd">添加</button>
+            </div>
+          </div>
           <div class="divider"></div>
           <h3>编辑字段 <small>(仅 JPEG / PNG / WebP)</small></h3>
           <label class="field"><span>作者</span><input id="exArtist" placeholder="拍摄者 / 作者"></label>

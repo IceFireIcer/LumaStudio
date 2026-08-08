@@ -32,6 +32,7 @@ const {
   writePngExif,
   writeWebpExif,
   readWebpChunks,
+  sanitizeTags,
 } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -1205,6 +1206,152 @@ test('HTTP: 批量任务落盘——重启时 running 任务标记为中断（�
     await new Promise(r => setTimeout(r, 300));
     const again = await (await fetch(`${base}/api/jobs/interrupted-1`)).json();
     assert.equal(again.done, 2, '中断任务不应自动续跑');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+/* ============ 标签体系（v1.3）============ */
+test('sanitizeTags: 净化/去重/限长/限数/类型防护', () => {
+  // 数组输入：去空、去重
+  assert.deepEqual(sanitizeTags(['人像', ' 人像 ', '风景', '', '   ']), ['人像', '风景']);
+  // 字符串输入：支持中英文逗号/顿号/空白分隔
+  assert.deepEqual(sanitizeTags('人像,风景、夜景 街头'), ['人像', '风景', '夜景', '街头']);
+  // 单标签限长 50
+  const long = 'x'.repeat(80);
+  assert.equal(sanitizeTags([long])[0].length, 50);
+  // 最多 20 个
+  const many = Array.from({ length: 30 }, (_, i) => 't' + i);
+  assert.equal(sanitizeTags(many).length, 20);
+  // 非法输入回退空数组
+  assert.deepEqual(sanitizeTags(null), []);
+  assert.deepEqual(sanitizeTags(123), []);
+  assert.deepEqual(sanitizeTags(undefined), []);
+});
+
+test('HTTP: 单张标签设置/替换/读取 + 上传默认空标签', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(), 'tag-a.jpg');
+    const id = up.added[0].id;
+    // 上传后默认无标签
+    assert.deepEqual(up.added[0].tags, []);
+    // 设置标签（数组）
+    let r = await (await fetch(`${base}/api/photos/${id}/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags: ['人像', '夜景'] }),
+    })).json();
+    assert.ok(r.ok);
+    assert.deepEqual(r.tags, ['人像', '夜景']);
+    // 全量替换（字符串输入）
+    r = await (await fetch(`${base}/api/photos/${id}/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags: '夜景' }),
+    })).json();
+    assert.deepEqual(r.tags, ['夜景']);
+    // GET /api/photos/:id 读取
+    const p = await (await fetch(`${base}/api/photos/${id}`)).json();
+    assert.deepEqual(p.tags, ['夜景']);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 旧数据无 tags 字段加载时回退为空数组', async () => {
+  const d = tmpdir();
+  const dirs = {
+    uploads: path.join(d, 'uploads'),
+    thumbs: path.join(d, 'thumbs'),
+    data: path.join(d, 'data'),
+  };
+  fs.mkdirSync(path.join(d, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'data', 'db.json'), JSON.stringify({
+    photos: [{ id: 'old1', name: 'old.jpg', stars: 0, flag: null }],
+    albums: [],
+  }));
+  const { app, getDb } = createAppServer({
+    port: 0, dirs, logDir: path.join(d, 'log'), publicDir: path.join(ROOT, 'public'),
+  });
+  const srv = await new Promise(resolve => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  try {
+    const p = getDb().photos[0];
+    assert.deepEqual(p.tags, [], '旧照片无 tags 字段应回退为空数组');
+    assert.equal(p.stars, 0, 'stars 兼容保持');
+  } finally { await closeServer(srv); }
+});
+
+test('HTTP: 批量标签 set/add/remove 语义与持久化', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const up = await uploadJpeg(base, await makeNoiseJpeg(), 'bt-a.jpg');
+    const up2 = await uploadJpeg(base, await makeNoiseJpeg(), 'bt-b.jpg');
+    const idA = up.added[0].id, idB = up2.added[0].id;
+    // add 追加（两批都打上）
+    let r = await (await fetch(`${base}/api/photos/batch/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [idA, idB], tags: ['街头'], mode: 'add' }),
+    })).json();
+    assert.equal(r.updated, 2);
+    // add 去重追加
+    r = await (await fetch(`${base}/api/photos/batch/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [idA], tags: ['街头', '人像'], mode: 'add' }),
+    })).json();
+    const pa = await (await fetch(`${base}/api/photos/${idA}`)).json();
+    assert.deepEqual(pa.tags, ['街头', '人像']);
+    // set 替换
+    r = await (await fetch(`${base}/api/photos/batch/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [idB], tags: ['夜景'], mode: 'set' }),
+    })).json();
+    const pb = await (await fetch(`${base}/api/photos/${idB}`)).json();
+    assert.deepEqual(pb.tags, ['夜景']);
+    // remove 移除
+    r = await (await fetch(`${base}/api/photos/batch/tags`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [idA], tags: ['街头'], mode: 'remove' }),
+    })).json();
+    const pa2 = await (await fetch(`${base}/api/photos/${idA}`)).json();
+    assert.deepEqual(pa2.tags, ['人像']);
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: 标签云聚合计数 + search tag 筛选', async () => {
+  const { srv, base } = await startServer();
+  try {
+    const up1 = await uploadJpeg(base, await makeNoiseJpeg(), 'cloud-a.jpg');
+    const up2 = await uploadJpeg(base, await makeNoiseJpeg(), 'cloud-b.jpg');
+    const up3 = await uploadJpeg(base, await makeNoiseJpeg(), 'cloud-c.jpg');
+    const id1 = up1.added[0].id, id2 = up2.added[0].id, id3 = up3.added[0].id;
+    // 打标签：a/b 有"街头"，a 有"人像"
+    for (const [id, tags] of [[id1, ['街头', '人像']], [id2, ['街头']], [id3, []]]) {
+      await (await fetch(`${base}/api/photos/${id}/tags`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      })).json();
+    }
+    const cloud = await (await fetch(`${base}/api/tags`)).json();
+    const names = cloud.tags.map(t => t.name);
+    assert.ok(names.includes('街头') && names.includes('人像'), '标签云应含全部标签');
+    const street = cloud.tags.find(t => t.name === '街头');
+    assert.equal(street.count, 2, '街头计数应为 2');
+    const portrait = cloud.tags.find(t => t.name === '人像');
+    assert.equal(portrait.count, 1, '人像计数应为 1');
+    // 排序：计数降序，同数按名称
+    assert.equal(cloud.tags[0].name, '街头', '计数高的排前');
+    // search?tag= 精确筛选
+    const hits = await (await fetch(`${base}/api/search?tag=${encodeURIComponent('街头')}`)).json();
+    assert.equal(hits.length, 2);
+    assert.ok(hits.every(p => p.tags.includes('街头')));
+    const noHit = await (await fetch(`${base}/api/search?tag=${encodeURIComponent('不存在')}`)).json();
+    assert.equal(noHit.length, 0);
+    // search?tag= 与 format 组合
+    const fmt = await (await fetch(`${base}/api/search?tag=${encodeURIComponent('街头')}&format=jpeg`)).json();
+    assert.equal(fmt.length, 2);
   } finally {
     await closeServer(srv);
   }

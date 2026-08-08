@@ -29,6 +29,14 @@
 
 ## 3. 已实现功能（v1.2.1 现状）
 
+### v1.3 标签体系（Unreleased，2026-08-09）
+
+- **数据模型**：`photo.tags: string[]`（任意文本，支持中文），标签直接挂在照片记录上，删除照片即随之消失，无独立标签表（零孤儿数据）
+- **后端**：`POST /api/photos/:id/tags`（全量替换，数组或逗号分隔字符串均可）、`POST /api/photos/batch/tags`（`mode: set|add|remove`，注册在 `/:id` 之前）、`GET /api/tags`（标签云，名称+计数，按 count 降序/名称升序）、`GET /api/search?tag=`（精确筛选）；`sanitizeTags` 工具函数净化（trim/去重/限长 50/限数 20，已导出供测试）
+- **前端**：信息页「标签」区块（chips 展示、输入框回车/按钮添加、chip 点击删除）、工具栏标签筛选下拉（`#tagFilter`，由 `/api/tags` 填充并保留当前选中）、批量条「🏷 标签」按钮（`showInputModal` 逗号分隔批量追加）
+- **兼容**：db 加载时 `if (!Array.isArray(p.tags)) p.tags = sanitizeTags(p.tags)`，旧数据无 `tags` 字段自动回退为空数组，无需迁移
+- **测试**：node:test 新增 5 个（sanitizeTags 净化、单张设置/替换/读取、旧数据兼容、批量 set/add/remove、标签云+search 筛选）；ui-smoke 新增 `TAG` 场景（信息页添加 → chips 渲染 → 筛选下拉出现）
+
 ### v1.2.1 多开 / 安全 / 可靠性批次（2026-08-08）
 
 - **多开支持**：`electron-main.cjs` 单实例锁失败时新实例弹原生对话框（`dialog.showMessageBox`），选「关闭新实例」退出，选「多开新窗口」经 `findFreePort` 探测空闲端口启动并**共享同一数据目录**；多开跳过 `second-instance` 聚焦、不迁移数据（`bootstrap(freePort, { migrate: false })`）；窗口生命周期事件（activate / window-all-closed / will-quit）统一提到锁分支之外
@@ -139,15 +147,16 @@
 
 ## 7. 下一步建议
 
-### 未开发功能（ROADMAP「计划中」，6 项，待确认优先级）
+### 未开发功能（ROADMAP「计划中」，5 项，待确认优先级）
 | 功能 | 说明 | 相对复杂度 |
 |---|---|---|
 | 编辑版本链 | 每张照片保留原图 + 历史版本，可回退/对比（非破坏式编辑） | 高 |
 | 时间线 / 日历浏览 | 按拍摄/导入时间聚合浏览 | 中 |
-| 标签体系 | 一图多标签 + 标签筛选（收藏夹之外的第二维度） | 中 |
 | 回收站 + 全库备份/恢复 | 删除可恢复，一键导出 db + 原图 | 中高 |
 | 更多 EXIF 字段编辑 | GPS、拍摄参数等（当前仅 Artist/Copyright/Description/DateTime/Software） | 中 |
 | 便携版↔安装版数据迁移工具 | 两套数据目录互相迁移 | 低中 |
+
+> 标签体系已实现（v1.3,Unreleased）,详见第 3 节。
 
 ### 未修复 bug / 风险（值得做的优先项，按数据安全排序）
 1. **批量任务中断不自动续跑**：v1.2.1 已落盘 `jobs.json`，但重启时 running 任务只标记「中断」，需手动重跑；大任务中途退出损失进度

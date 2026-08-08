@@ -206,6 +206,27 @@ function persistWithLock(file, data) {
 }
 
 /* ============ 设置校验 ============ */
+// 标签净化：输入可以是字符串数组或逗号分隔字符串（支持中英文逗号/顿号/空白分隔）。
+// 每项 trim、合并连续空白、去重、限长 50 字符、最多 20 个；非法输入返回空数组。
+// 标签直接挂在 photo.tags 上，删除照片即随之消失，无需维护全局标签表（零孤儿数据）。
+function sanitizeTags(input) {
+  const arr = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(/[,，、\s]+/)
+      : [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of arr) {
+    const t = String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ').slice(0, 50);
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
 function sanitizeSettings(input = {}) {
   const src = (input && typeof input === 'object') ? input : {};
   const format = String(src.defaultFormat || DEFAULT_SETTINGS.defaultFormat).toLowerCase();
@@ -405,6 +426,7 @@ async function buildMeta(filePath, id, original) {
     time: Date.now(),
     stars: 0,
     flag: null,
+    tags: [],
   };
 }
 
@@ -740,6 +762,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isE
   for (const p of db.photos) {
     if (p.stars == null) p.stars = 0;
     if (p.flag == null) p.flag = null;
+    if (!Array.isArray(p.tags)) p.tags = sanitizeTags(p.tags);
     // 修复旧版本按 latin1 误存的中文文件名（仅处理可疑的乱码串，正常 Unicode 名不受影响）
     if (p.name && p.name !== fixUploadName(p.name)) {
       p.name = fixUploadName(p.name);
@@ -862,6 +885,19 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isE
     res.json([...db.photos].sort((a, b) => b.time - a.time));
   });
 
+  /* ---------- 标签云 ---------- */
+  app.get('/api/tags', (req, res) => {
+    const counts = new Map();
+    for (const p of db.photos) {
+      for (const t of (p.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
+    }
+    // 按使用数降序、名称升序排列
+    const tags = [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name), 'zh'));
+    res.json({ tags });
+  });
+
   /* ---------- 批量操作 ----------
    * 必须注册在 /api/photos/:id 系列路由之前：否则 'batch' 会被当作 id 吞掉，
    * 批量端点永远命中单张照片路由并返回 404。
@@ -888,6 +924,28 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isE
     }
     persistDB();
     res.json({ ok: true, updated: n, flag: f });
+  });
+
+  // 批量标签：mode = set（替换为给定集合）| add（合并追加）| remove（移除）
+  app.post('/api/photos/batch/tags', (req, res) => {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+    const tags = sanitizeTags(req.body && req.body.tags);
+    const mode = (['set', 'add', 'remove'].includes(req.body && req.body.mode)) ? req.body.mode : 'add';
+    let n = 0;
+    for (const id of ids) {
+      const p = db.photos.find(x => x.id === id);
+      if (!p) continue;
+      if (mode === 'set') p.tags = [...tags];
+      else if (mode === 'add') {
+        const cur = p.tags || [];
+        p.tags = [...new Set([...cur, ...tags])];
+      } else { // remove
+        p.tags = (p.tags || []).filter(t => !tags.includes(t));
+      }
+      n++;
+    }
+    persistDB();
+    res.json({ ok: true, updated: n, mode, tags });
   });
 
   app.post('/api/photos/batch/delete', ah(async (req, res) => {
@@ -1224,6 +1282,15 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isE
     res.json({ ok: true, flag: p.flag });
   });
 
+  // 单张标签：全量替换（数组或逗号分隔字符串均可，sanitizeTags 统一净化）
+  app.post('/api/photos/:id/tags', (req, res) => {
+    const p = db.photos.find(x => x.id === req.params.id);
+    if (!p) return res.status(404).json({ error: '未找到' });
+    p.tags = sanitizeTags(req.body && req.body.tags);
+    persistDB();
+    res.json({ ok: true, tags: p.tags });
+  });
+
   /* ---------- 相册 ---------- */
   app.get('/api/albums', (req, res) => {
     res.json(db.albums.map(a => {
@@ -1454,7 +1521,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isE
   /* ---------- 搜索 ---------- */
   app.get('/api/search', (req, res) => {
     let list = [...db.photos];
-    const { q, stars, flag, album, format, sort } = req.query;
+    const { q, stars, flag, album, format, sort, tag } = req.query;
     if (q) {
       const lower = String(q).toLowerCase();
       list = list.filter(p => String(p.name).toLowerCase().includes(lower));
@@ -1465,6 +1532,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isE
     else if (flag === 'reject') list = list.filter(p => p.flag === 'reject');
     else if (flag === 'flagged') list = list.filter(p => p.flag);
     if (format) list = list.filter(p => String(p.format || '').toLowerCase() === String(format).toLowerCase());
+    if (tag) list = list.filter(p => Array.isArray(p.tags) && p.tags.includes(String(tag)));
     if (album) {
       const a = db.albums.find(x => x.id === album);
       if (a) list = list.filter(p => a.photoIds.includes(p.id));
@@ -1569,5 +1637,6 @@ module.exports = {
   readTiffTextTags,
   extractExifTiff,
   fixUploadName,
+  sanitizeTags,
   DEFAULT_SETTINGS,
 };

@@ -74,9 +74,15 @@ Luma Studio 将你的电脑变成私人影像工作台。在优雅的白色主�
 - 浏览收藏夹内容
 - **v1.2 封面与批量**：卡片首图封面、详情页完整批量条、拖拽加入收藏夹
 
+### 标签（v1.3）
+- 一图多标签（任意文本，支持中文），收藏夹之外的第二组织维度
+- 信息页标签编辑：chips 展示、输入添加、点击删除
+- 工具栏标签筛选下拉 + 批量添加标签
+- 标签云计数（`/api/tags`），照片删除后标签自动消失
+
 ### 搜索、筛选、排序
 - 文件名搜索
-- 按星级、标记状态、图片格式筛选
+- 按星级、标记状态、图片格式、标签筛选
 - 按名称、日期、大小、评分排序
 
 ### 幻灯片
@@ -177,6 +183,9 @@ npm run electron
 | `POST` | `/api/photos/:id/rename` | 重命名照片 |
 | `POST` | `/api/photos/:id/stars` | 设置评分（0–5） |
 | `POST` | `/api/photos/:id/flag` | 设置标记（`pick` / `reject` / `null`） |
+| `POST` | `/api/photos/:id/tags` | 全量替换标签 `{ tags: string[] | string }` |
+| `GET` | `/api/tags` | 标签云（名称 + 使用计数） |
+| `POST` | `/api/photos/batch/tags` | 批量标签 `{ ids, tags, mode: set|add|remove }` |
 | `PUT` | `/api/photos/:id/draft` | 保存编辑草稿 |
 | `GET` | `/api/photos/:id/draft` | 读取编辑草稿（无草稿返回 404） |
 | `DELETE` | `/api/photos/:id/draft` | 清除编辑草稿 |
@@ -199,7 +208,7 @@ npm run electron
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`） |
+| `GET` | `/api/search` | 搜索/筛选（`q`, `sort`, `stars`, `flag`, `format`, `tag`, `album`, `hideReject`） |
 | `GET` | `/api/settings` | 获取设置 |
 | `POST` | `/api/settings` | 更新设置 |
 | `GET` | `/api/stats` | 存储统计（含 `dataDir`） |

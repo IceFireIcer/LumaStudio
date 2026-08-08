@@ -95,6 +95,7 @@ let selected = new Set(); // 多选照片 ID 集合
 let albums = [];
 let activeAlbumId = null; // 正在浏览的相册
 let hideReject = false;   // 隐藏排除照片
+let activeTag = '';       // 标签筛选（标签体系，第二组织维度）
 let slTimer = null; // 幻灯片定时器
 
 /* ============ 视图切换 ============ */
@@ -158,6 +159,7 @@ async function loadPhotos(){
   if(flag && !isNaN(flag)) params.set('stars', flag);
   else if(flag) params.set('flag', flag);
   if(fmt) params.set('format', fmt);
+  if(activeTag) params.set('tag', activeTag);
   if(activeAlbumId) params.set('album', activeAlbumId);
   if(hideReject) params.set('hideReject', '1');
   photos = await api.get('/api/search?'+params);
@@ -168,6 +170,21 @@ async function loadPhotos(){
 async function loadAlbums(){
   albums = await api.get('/api/albums');
   renderAlbums();
+}
+// 标签云：填充工具栏标签筛选下拉（保留当前选中，避免切库时丢失筛选）
+async function loadTags(){
+  const sel = $('#tagFilter');
+  if (!sel) return;
+  const prev = sel.value;
+  try {
+    const r = await api.get('/api/tags');
+    const tags = (r && r.tags) || [];
+    const cur = prev || activeTag;
+    sel.innerHTML = '<option value="">所有标签</option>' +
+      tags.map(t => `<option value="${esc(t.name)}">${esc(t.name)} (${t.count})</option>`).join('');
+    if (cur && tags.some(t => t.name === cur)) sel.value = cur;
+    else if (activeTag && !tags.some(t => t.name === activeTag)) { activeTag = ''; sel.value = ''; }
+  } catch { /* 标签云加载失败不影响相册 */ }
 }
 
 /* ============ 瀑布流布局 ============
@@ -236,7 +253,7 @@ function renderGrid(){
   const flipState = (window.Flip && window.gsap) ? Flip.getState(grid.querySelectorAll('.card')) : null;
   grid.innerHTML = '';
   // v1.2 §2.3 空状态 CTA：搜索/筛选/隐藏排除激活时显示"清除筛选"
-  const filtersActive = !!( $('#searchInput').value.trim() || $('#filterSelect').value || $('#formatFilter').value || hideReject );
+  const filtersActive = !!( $('#searchInput').value.trim() || $('#filterSelect').value || $('#formatFilter').value || activeTag || hideReject );
   if (photos.length === 0 && filtersActive) {
     emptyState.innerHTML = '<div class="empty-ico">🔍</div><p>没有找到匹配的照片</p><button class="btn primary" id="clearFiltersBtn">清除筛选</button>';
     $('#clearFiltersBtn').onclick = () => {
@@ -244,6 +261,8 @@ function renderGrid(){
       $('#sortSelect').value = '';
       $('#filterSelect').value = '';
       $('#formatFilter').value = '';
+      activeTag = '';
+      $('#tagFilter').value = '';
       hideReject = false;
       $('#hideRejectBtn').classList.toggle('active', false);
       loadPhotos();
@@ -1443,11 +1462,54 @@ async function openExif(p){
   const r = await api.get(`/api/photos/${p.id}/exif`);
   const ex = r.exif || {};
   list.innerHTML = renderExifGroups(p, ex);
+  // 标签 chips（应用级数据，不依赖文件格式）
+  renderExifTags(p);
   // 填充可编辑字段
   $('#exArtist').value = ex.Artist||'';
   $('#exCopyright').value = ex.Copyright||'';
   $('#exDesc').value = ex.ImageDescription||'';
   $('#exDate').value = ex.DateTimeOriginal ? formatExifDate(ex.DateTimeOriginal) : '';
+}
+// 信息页标签编辑器：chips 展示 + 点击删除 + 输入框回车/按钮添加（全量替换提交）
+function renderExifTags(p){
+  const box = $('#exifTagChips');
+  if (!box) return;
+  const tags = Array.isArray(p.tags) ? p.tags : [];
+  if (!tags.length) {
+    box.innerHTML = '<span class="tag-chip empty-hint">暂无标签</span>';
+    return;
+  }
+  box.innerHTML = tags.map(t =>
+    `<span class="tag-chip">${esc(t)}<button data-tag="${esc(t)}" title="移除标签">✕</button></span>`
+  ).join('');
+}
+async function saveExifTags(newTags){
+  if(!current) return;
+  const r = await api.post(`/api/photos/${current.id}/tags`, { tags: newTags });
+  if(r.ok){
+    current.tags = r.tags;
+    renderExifTags(current);
+    $('#exifTagInput').value = '';
+    toast('标签已更新 ✓');
+    loadTags();
+  } else toast(r.error||'标签保存失败', true);
+}
+$('#exifTagChips').addEventListener('click', e=>{
+  const btn = e.target.closest('button[data-tag]');
+  if(!btn || !current) return;
+  const tags = (current.tags || []).filter(t => t !== btn.dataset.tag);
+  saveExifTags(tags);
+});
+$('#exifTagAdd').onclick = ()=>submitExifTags();
+$('#exifTagInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitExifTags(); } });
+function submitExifTags(){
+  if(!current) return;
+  const raw = $('#exifTagInput').value.trim();
+  if(!raw){ toast('请输入标签', true); return; }
+  const newTags = raw.split(/[,，、\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(!newTags.length) return;
+  // 追加到现有标签并去重（信息页是"追加"语义，批量条同理）
+  saveExifTags([...new Set([...(current.tags || []), ...newTags])]);
 }
 // v1.2 §3.5.1 分组展示；§3.5.3 GPS 十进制度 + 度分秒 + 地图链接
 function dmsFormat(v, isLat){
@@ -1741,6 +1803,7 @@ $('#searchInput').addEventListener('input', ()=>{ clearTimeout(searchTimer); sea
 $('#sortSelect').addEventListener('change', loadPhotos);
 $('#filterSelect').addEventListener('change', loadPhotos);
 $('#formatFilter').addEventListener('change', loadPhotos);
+$('#tagFilter').addEventListener('change', ()=>{ activeTag = $('#tagFilter').value; loadPhotos(); });
 $('#hideRejectBtn').onclick = ()=>{
   hideReject = !hideReject;
   $('#hideRejectBtn').classList.toggle('active', hideReject);
@@ -1774,6 +1837,19 @@ $('#batchRate').onclick = async ()=>{
     const r = await api.post('/api/photos/batch/stars', { ids, stars: +s });
     if(!r.ok) throw new Error(r.error||'操作失败');
     toast(`已对 ${ids.length} 张评分 ✓`); await refreshAfterBatch();
+  }catch(e){ toast('操作失败:'+e.message, true); }
+};
+$('#batchTag').onclick = async ()=>{
+  if(!selected.size){ toast('请先选择照片', true); return; }
+  const raw = await showInputModal('批量添加标签', '标签,逗号分隔多个', '', '输入要添加的标签,多个用逗号分隔');
+  if(raw == null) return;
+  const tags = raw.split(/[,，、\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(!tags.length){ toast('请输入至少一个标签', true); return; }
+  const ids = [...selected];
+  try{
+    const r = await api.post('/api/photos/batch/tags', { ids, tags, mode: 'add' });
+    if(!r.ok) throw new Error(r.error||'操作失败');
+    toast(`已为 ${r.updated} 张添加标签 ✓`); await refreshAfterBatch(); await loadTags();
   }catch(e){ toast('操作失败:'+e.message, true); }
 };
 $('#batchDelete').onclick = async ()=>{
@@ -2613,6 +2689,7 @@ function showSelectModal(title, options = [], hint = '') {
   await loadSettings();
   await loadPhotos();
   await loadAlbums();
+  await loadTags();
   bindLogFilters();
   startLogsAutoRefresh();
   // 记录启动日志

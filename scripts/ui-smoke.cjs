@@ -527,6 +527,30 @@ app.whenReady().then(async () => {
           }
         } catch (e) { webp400 = 'webp400-error:' + e.message; }
         console.log('WEBP400 ' + webp400);
+
+        // 标签体系（v1.3）：信息页添加标签 → chips 渲染 → 工具栏筛选出现该标签
+        const tagFlow = await win.webContents.executeJavaScript(`(async function(){
+          try {
+            document.querySelector('.nav-item[data-view="library"]').click();
+            await new Promise(r => setTimeout(r, 600));
+            const card = document.querySelectorAll('#grid .card')[0];
+            card.querySelector('.info').click(); // 信息页
+            await new Promise(r => setTimeout(r, 1000));
+            const input = document.getElementById('exifTagInput');
+            input.value = '冒烟标签';
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            await new Promise(r => setTimeout(r, 800));
+            const chips = Array.from(document.querySelectorAll('#exifTagChips .tag-chip'))
+              .map(el => el.textContent.trim());
+            const added = chips.some(t => t.includes('冒烟标签'));
+            // 标签筛选下拉应出现该标签（含计数）
+            const opts = Array.from(document.getElementById('tagFilter').options).map(o => o.textContent);
+            const inFilter = opts.some(o => o.includes('冒烟标签'));
+            return 'tag-ok added=' + added + ' chips=' + JSON.stringify(chips) +
+              ' inFilter=' + inFilter + ' options=' + JSON.stringify(opts);
+          } catch (e) { return 'tag-error:' + e.message; }
+        })()`);
+        console.log('TAG ' + tagFlow);
       } catch (e) {
         errors.push('executeJavaScript: ' + e.message);
       }

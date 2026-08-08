@@ -74,9 +74,15 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 - Browse album contents
 - **Cover & batch (v1.2)**: first-photo card covers, full batch bar in album detail, drag photos into the sidebar album
 
+### Tags (v1.3)
+- Multiple free-form tags per photo (any text, Chinese supported) — a second organization dimension alongside albums
+- Edit tags in the info panel: chips display, add by input, remove by click
+- Toolbar tag filter dropdown + batch tag add
+- Tag cloud with counts (`/api/tags`); tags disappear automatically when a photo is deleted
+
 ### Search, Filter & Sort
 - Search by filename
-- Filter by stars, pick/reject flag, image format
+- Filter by stars, pick/reject flag, image format, or tag
 - Sort by name, date, size, or stars
 
 ### Slideshow
@@ -207,6 +213,9 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `POST` | `/api/photos/:id/rename` | Rename photo |
 | `POST` | `/api/photos/:id/stars` | Set stars (0–5) |
 | `POST` | `/api/photos/:id/flag` | Set flag (`pick` / `reject` / `null`) |
+| `POST` | `/api/photos/:id/tags` | Replace tags `{ tags: string[] | string }` |
+| `GET` | `/api/tags` | Tag cloud (name + usage count) |
+| `POST` | `/api/photos/batch/tags` | Batch tags `{ ids, tags, mode: set|add|remove }` |
 | `PUT` | `/api/photos/:id/draft` | Save the edit draft |
 | `GET` | `/api/photos/:id/draft` | Read the edit draft (404 when none) |
 | `DELETE` | `/api/photos/:id/draft` | Clear the edit draft |
@@ -229,7 +238,7 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `album`, `hideReject`) |
+| `GET` | `/api/search` | Search / filter (`q`, `sort`, `stars`, `flag`, `format`, `tag`, `album`, `hideReject`) |
 | `GET` | `/api/settings` | Get settings |
 | `POST` | `/api/settings` | Update settings |
 | `GET` | `/api/stats` | Storage statistics (incl. `dataDir`) |
