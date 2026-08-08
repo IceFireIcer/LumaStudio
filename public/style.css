@@ -397,6 +397,9 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.18)}
 .settings-hint{font-size:13px;color:var(--text-soft);margin-bottom:14px;line-height:1.6}
 .stat-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .stat-row:last-of-type{border:none;margin-bottom:10px}
+.token-val{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;max-width:60%;text-align:right;background:var(--bg-elev);padding:2px 6px;border-radius:6px}
+.token-actions{display:flex;gap:8px;margin:10px 0}
+.token-actions .btn{flex:1}
 .swatches{display:flex;gap:10px;margin-top:12px}
 .sw{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:transform .2s}
 .sw:hover{transform:scale(1.15)}

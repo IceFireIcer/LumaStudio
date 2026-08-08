@@ -356,12 +356,29 @@
         <div class="stat-row"><span>数据目录</span><b id="stDir">—</b></div>
         <button class="btn ghost" id="openDataDirBtn" disabled>打开数据目录</button>
         <div class="divider"></div>
+        <div class="stat-row"><span>访问令牌</span><code class="token-val" id="stToken">—</code></div>
+        <p class="settings-hint">本地写操作鉴权用，防其他进程/网页篡改。丢失令牌则无法写操作，可重新生成。</p>
+        <div class="token-actions">
+          <button class="btn ghost" id="copyTokenBtn" disabled>复制令牌</button>
+          <button class="btn ghost" id="resetTokenBtn" disabled>重新生成</button>
+        </div>
+        <div class="divider"></div>
         <button class="btn danger" id="clearStorage">清空全部照片</button>
       </div>
       <div class="settings-card">
         <h3>首次使用向导</h3>
         <p class="settings-hint">重置后,下次启动程序时将重新显示使用引导(OOBE)。</p>
         <button class="btn ghost" id="resetOOBE">重置首次使用向导</button>
+      </div>
+      <div class="settings-card">
+        <h3>系统</h3>
+        <label class="field"><span>日志页刷新间隔</span>
+          <select id="setLogsRefresh">
+            <option value="3">3 秒</option>
+            <option value="10">10 秒</option>
+            <option value="30">30 秒</option>
+          </select></label>
+        <p class="settings-hint">日志页自动刷新频率。间隔越大后台开销越小，调试时可调小。</p>
       </div>
       <button class="btn primary big" id="saveSettings">保存设置</button>
     </section>
@@ -425,7 +442,7 @@
           <span class="about-logo">📷</span>
           <h2>Luma Studio</h2>
           <p class="about-tagline">光影工作室 · 图片查看与编辑</p>
-          <span class="about-ver" id="aboutVer">v1.2.0</span>
+          <span class="about-ver" id="aboutVer">v1.2.1</span>
         </div>
         <div class="about-section">
           <h3>简介</h3>

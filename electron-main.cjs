@@ -14,6 +14,8 @@ const app = electron.app;
 const BrowserWindow = electron.BrowserWindow;
 const ipcMain = electron.ipcMain;
 const shell = electron.shell;
+const dialog = electron.dialog;
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
@@ -22,7 +24,21 @@ const execAsync = promisify(exec);
 const { createAppServer } = require('./server-app.cjs');
 
 const APP_ROOT = __dirname;
-const PORT = 13579; // 固定高端口，仅监听本机回环地址
+const PORT = 13579; // 默认高端口，仅监听本机回环地址；多开时自动探测空闲端口
+
+// 探测从 basePort 起的第一个可用端口（多开时新实例使用）
+function findFreePort(basePort) {
+  return new Promise(resolve => {
+    const probe = (p) => {
+      if (p > basePort + 100) return resolve(basePort); // 兜底：回退默认端口
+      const srv = net.createServer();
+      srv.once('error', () => probe(p + 1));
+      srv.once('listening', () => srv.close(() => resolve(p)));
+      srv.listen(p, '127.0.0.1');
+    };
+    probe(basePort);
+  });
+}
 
 /* ============ 数据目录解析 ============
  * 便携版（electron-builder portable 目标）：数据放在 exe 旁 storage/，随 exe 携带；
@@ -130,6 +146,8 @@ async function resetOOBE() {
 let mainWindow = null;
 let serverInstance = null;
 let currentLogger = null;
+let currentAuthToken = '';
+let activePort = PORT; // 当前实例实际监听端口（多开时为探测到的空闲端口）
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -149,14 +167,14 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadURL(`http://localhost:${PORT}`);
+  mainWindow.loadURL(`http://localhost:${activePort}`);
   mainWindow.once('ready-to-show', () => { mainWindow.show(); });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-function startServer() {
-  const { app: appServer, logger } = createAppServer({
-    port: PORT,
+function startServer(port = PORT) {
+  const { app: appServer, logger, getAuthToken } = createAppServer({
+    port,
     dirs: DIRS,
     logDir: LOG_DIR,
     publicDir: path.join(APP_ROOT, 'public'),
@@ -164,6 +182,7 @@ function startServer() {
     isElectron: true,
   });
   currentLogger = logger;
+  currentAuthToken = getAuthToken ? getAuthToken() : '';
 
   // OOBE API（仅桌面端需要，注册表持久化）
   appServer.get('/api/oobe/status', async (req, res) => {
@@ -179,9 +198,10 @@ function startServer() {
   });
 
   return new Promise((resolve, reject) => {
-    serverInstance = appServer.listen(PORT, '127.0.0.1', () => {
-      logger.info('system', `服务器已启动在端口 ${PORT}`);
-      console.log(`\n  📷 Luma Studio 已启动 → http://localhost:${PORT}\n`);
+    serverInstance = appServer.listen(port, '127.0.0.1', () => {
+      activePort = port;
+      logger.info('system', `服务器已启动在端口 ${port}`);
+      console.log(`\n  📷 Luma Studio 已启动 → http://localhost:${port}\n`);
       resolve();
     });
     serverInstance.on('error', reject); // 端口占用等错误显式暴露
@@ -194,6 +214,11 @@ ipcMain.handle('open-data-dir', async () => {
   return err ? { ok: false, error: err } : { ok: true };
 });
 
+// v1.2.1 本地访问令牌：渲染进程写请求鉴权用（令牌由服务端生成，保存在 settings.json）
+ipcMain.handle('get-auth-token', async () => {
+  return currentAuthToken || '';
+});
+
 /* ============ 进程级兜底 ============ */
 process.on('uncaughtException', err => {
   if (currentLogger) currentLogger.error('system', '未捕获异常', { message: err && err.message });
@@ -204,11 +229,59 @@ process.on('unhandledRejection', reason => {
   else console.error('未处理的 Promise 拒绝:', reason);
 });
 
-/* ============ 单实例锁 ============ */
+/* ============ 单实例锁 / 多开（v1.2.1） ============
+ * 默认单实例：重复启动时新实例弹原生对话框，
+ * 用户可选「关闭新实例」直接退出，或「多开新窗口」自动换端口启动并共享同一数据目录。
+ * 多开时跳过 second-instance 聚焦逻辑（两实例各自独立窗口）。
+ */
 const gotLock = app.requestSingleInstanceLock();
+let isMultiOpen = false;
+
+async function confirmMultiOpen() {
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    title: 'Luma Studio 已在运行',
+    message: '检测到已有 Luma Studio 实例正在运行。',
+    detail: '新实例将与现有实例共享同一数据目录（照片库、草稿、设置）。\n'
+      + '多开主要用于「只看不编」的浏览场景：两个实例同时编辑照片可能造成写冲突，'
+      + '请确认新实例的写操作在现有实例空闲时进行。',
+    buttons: ['关闭新实例', '多开新窗口'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return response === 1; // 用户选择「多开新窗口」
+}
+
+// 统一启动流程：建目录 → 启动服务器（失败弹原生错误窗）→ 开窗口
+async function bootstrap(port, { migrate = true } = {}) {
+  if (migrate) migrateData();
+  for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
+  try {
+    await startServer(port);
+  } catch (e) {
+    console.error('服务器启动失败:', e.message);
+    dialog.showErrorBox('Luma Studio 启动失败', `无法启动服务器（端口 ${port}）：${e.message}`);
+    app.quit();
+    return;
+  }
+  createWindow();
+}
+
 if (!gotLock) {
-  // 已有实例在运行，退出本实例
-  app.quit();
+  // 已有实例在运行：弹窗询问
+  app.whenReady().then(async () => {
+    const openAnother = await confirmMultiOpen();
+    if (!openAnother) {
+      app.quit();
+      return;
+    }
+    // 多开：探测空闲端口（跳过默认端口，避免与现有实例冲突）；
+    // 数据目录已被现有实例初始化，无需再迁移
+    isMultiOpen = true;
+    const freePort = await findFreePort(PORT + 1);
+    await bootstrap(freePort, { migrate: false });
+  });
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -218,33 +291,24 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    migrateData();
-    for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
-    try {
-      await startServer();
-    } catch (e) {
-      console.error('服务器启动失败:', e.message);
-      app.quit();
-      return;
-    }
-    createWindow();
-
-    // macOS: 点击 dock 图标时重新创建窗口
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
-  });
-
-  // 所有窗口关闭时退出(非 macOS)
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-  });
-
-  // 退出前停止服务器
-  app.on('will-quit', () => {
-    if (serverInstance) {
-      serverInstance.close();
-      serverInstance = null;
-    }
+    await bootstrap(PORT);
   });
 }
+
+// macOS: 点击 dock 图标时重新创建窗口（仅主实例持锁时有效）
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// 所有窗口关闭时退出(非 macOS)；多开实例同样遵守
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// 退出前停止服务器（主实例与多开实例都会执行）
+app.on('will-quit', () => {
+  if (serverInstance) {
+    serverInstance.close();
+    serverInstance = null;
+  }
+});

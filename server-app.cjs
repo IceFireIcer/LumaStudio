@@ -14,6 +14,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { ZipFile } = require('yazl');
+const crypto = require('crypto');
 
 const IMAGE_MIME = /^image\/(jpeg|png|webp|gif|avif|tiff|bmp)$/i;
 const ALLOWED_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'tif', 'tiff', 'bmp']);
@@ -32,10 +33,12 @@ const DEFAULT_SETTINGS = {
   theme: 'light',
   reduceMotion: 'system',
   slideshowInterval: 3,
+  logsRefreshInterval: 3, // v1.2.1：日志页自动刷新间隔（秒）
 };
 const VALID_THEMES = new Set(['light', 'dark']);
 const VALID_REDUCE_MOTION = new Set(['system', 'on', 'off']);
 const VALID_SLIDESHOW_INTERVALS = new Set([3, 5, 10]);
+const VALID_LOGS_REFRESH_INTERVALS = new Set([3, 10, 30]);
 const MAX_LOG_SIZE = 10 * 1024 * 1024;
 const MAX_LOG_BACKUPS = 3;
 
@@ -153,6 +156,55 @@ function saveJSONAtomic(file, obj) {
   fs.renameSync(tmp, file);
 }
 
+/* ============ 文件级写锁（v1.2.1 多开支持） ============
+ * 多开实例共享同一数据目录时，防止 db.json / drafts.json / settings.json 双写互相覆盖。
+ * 锁文件 `<file>.lock` 以原子方式（'wx'）创建，内容含 pid 与时间戳；
+ * 残留锁判定：超过 30s 视为过期可接管，或 pid 已不存在可接管。
+ */
+const LOCK_TIMEOUT_MS = 30 * 1000;
+function acquireWriteLock(file) {
+  const lockFile = file + '.lock';
+  try {
+    const fd = fs.openSync(lockFile, 'wx');
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, time: Date.now() }));
+    fs.closeSync(fd);
+    return true;
+  } catch (e) {
+    if (e && e.code === 'EEXIST') {
+      let stale = false;
+      try {
+        const info = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+        if (Date.now() - (info.time || 0) > LOCK_TIMEOUT_MS) stale = true;
+        else if (info.pid && info.pid !== process.pid) {
+          try { process.kill(info.pid, 0); } catch { stale = true; } // 目标进程已退出
+        }
+      } catch { stale = true; } // 锁文件内容异常视为残留
+      if (stale) {
+        try { fs.unlinkSync(lockFile); } catch { /* 忽略 */ }
+        return acquireWriteLock(file); // 接管后重试一次
+      }
+    }
+    return false;
+  }
+}
+function releaseWriteLock(file) {
+  try { fs.unlinkSync(file + '.lock'); } catch { /* 忽略 */ }
+}
+class LumaWriteConflict extends Error {
+  constructor(file) {
+    super(`另一实例正在写入 ${path.basename(file)}，请稍后重试`);
+    this.lumaWriteConflict = true;
+  }
+}
+function persistWithLock(file, data) {
+  if (!acquireWriteLock(file)) throw new LumaWriteConflict(file);
+  try {
+    saveJSONAtomic(file, data);
+  } finally {
+    releaseWriteLock(file);
+  }
+}
+
 /* ============ 设置校验 ============ */
 function sanitizeSettings(input = {}) {
   const src = (input && typeof input === 'object') ? input : {};
@@ -167,6 +219,8 @@ function sanitizeSettings(input = {}) {
     reduceMotion: VALID_REDUCE_MOTION.has(String(src.reduceMotion)) ? String(src.reduceMotion) : DEFAULT_SETTINGS.reduceMotion,
     slideshowInterval: VALID_SLIDESHOW_INTERVALS.has(Number(src.slideshowInterval))
       ? Number(src.slideshowInterval) : DEFAULT_SETTINGS.slideshowInterval,
+    logsRefreshInterval: VALID_LOGS_REFRESH_INTERVALS.has(Number(src.logsRefreshInterval))
+      ? Number(src.logsRefreshInterval) : DEFAULT_SETTINGS.logsRefreshInterval,
   };
 }
 
@@ -665,14 +719,17 @@ function extractExifTiff(buf, ext) {
 }
 
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isElectron = false }) {
-  sharp.cache(false);
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isElectron = false, requireToken = null }) {
+  // sharp 缓存策略：Windows 上禁用内部缓存避免文件句柄锁定（历史问题，保持现状）；
+  // 其他平台启用默认缓存，重复解码同图时提升性能（v1.2.1 权衡后仅按平台差异处理）。
+  if (process.platform === 'win32') sharp.cache(false);
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const { logger, LOG_FILE, LOG_DIR } = createLogger(logDir);
 
   const DB_FILE = path.join(dirs.data, 'db.json');
   const SETTINGS_FILE = path.join(dirs.data, 'settings.json');
   const DRAFTS_FILE = path.join(dirs.data, 'drafts.json');
+  const JOBS_FILE = path.join(dirs.data, 'jobs.json'); // v1.2.1：批量任务状态落盘，重启可恢复
   const DRAFT_MAX_BYTES = 8 * 1024;   // 单条草稿 ≤ 8KB
   const DRAFT_MAX_COUNT = 1000;       // 草稿总数 ≤ 1000，超限清 updatedAt 最旧
 
@@ -689,11 +746,29 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
       nameMigrated = true;
     }
   }
-  let settings = sanitizeSettings(loadJSON(SETTINGS_FILE, DEFAULT_SETTINGS));
-  const persistDB = () => saveJSONAtomic(DB_FILE, db);
-  const persistDrafts = () => saveJSONAtomic(DRAFTS_FILE, drafts);
+  // 本地访问令牌：首启生成随机 token 存 settings.json，
+  // 防止本机其他进程 / 恶意网页绕过浏览器同源策略直接调用写 API。
+  const rawSettings = loadJSON(SETTINGS_FILE, DEFAULT_SETTINGS);
+  const isFirstRun = !rawSettings.authToken;
+  if (isFirstRun) rawSettings.authToken = crypto.randomBytes(32).toString('hex');
+  let settings = sanitizeSettings(rawSettings);
+  const persistDB = () => persistWithLock(DB_FILE, db);
+  const persistDrafts = () => persistWithLock(DRAFTS_FILE, drafts);
   if (nameMigrated) persistDB();
-  const persistSettings = () => saveJSONAtomic(SETTINGS_FILE, settings);
+  const persistSettings = () => persistWithLock(SETTINGS_FILE, { ...settings, authToken: rawSettings.authToken });
+  // 首启生成令牌：直接原子写，避免锁竞争（此刻无其他实例）
+  if (isFirstRun) saveJSONAtomic(SETTINGS_FILE, { ...settings, authToken: rawSettings.authToken });
+  // 批量任务专用：锁冲突时短暂重试（其他实例写锁通常很快释放），避免整张照片被误判为失败
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const persistDBWithRetry = async (retries = 3, delay = 200) => {
+    for (let i = 0; i < retries; i++) {
+      try { persistDB(); return; }
+      catch (e) {
+        if (!e || !e.lumaWriteConflict || i === retries - 1) throw e;
+        await sleep(delay);
+      }
+    }
+  };
   // 管线运行包装：暗角/颗粒叠加失败等告警进后端日志页，便于排查
   const runPipelineLogged = (src, opts, stt) =>
     runPipeline(src, opts, stt, msg => logger.warn('backend', msg));
@@ -726,6 +801,18 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
     const origin = req.headers.origin;
     if (origin && !allowedOrigins.has(String(origin))) {
       return res.status(403).json({ error: '跨站请求被拒绝' });
+    }
+    next();
+  });
+
+  // 本地 Token 校验：写请求必须携带 X-Luma-Token
+  //（仅 Electron 生产场景或显式 requireToken 时启用；测试/冒烟默认关闭，避免破坏既有用例）
+  const TOKEN_ENABLED = requireToken == null ? isElectron : requireToken;
+  app.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    if (!TOKEN_ENABLED) return next();
+    if (req.headers['x-luma-token'] !== rawSettings.authToken) {
+      return res.status(401).json({ error: '访问令牌无效，请重新打开应用' });
     }
     next();
   });
@@ -977,11 +1064,11 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
     }
     if (ext === '.png') {
       const out = writePngExif(bin, tiffData);
-      if (!out) return res.status(400).json({ error: 'PNG 结构无法写入 EXIF' });
+      if (!out) return res.status(400).json({ error: '该 PNG 变体不支持写入 EXIF，原文件未改动' });
       fs.writeFileSync(full, out);
     } else if (ext === '.webp') {
       const out = writeWebpExif(bin, tiffData);
-      if (!out) return res.status(400).json({ error: 'WebP 结构无法写入 EXIF' });
+      if (!out) return res.status(400).json({ error: '该 WebP 变体（如动画/损坏文件）不支持写入 EXIF，原文件未改动' });
       fs.writeFileSync(full, out);
     } else {
       fs.writeFileSync(full, Buffer.from(piexif.insert(tiffData.toString('binary'), binary), 'binary'));
@@ -1099,6 +1186,14 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
     res.json({ ok: true, settings });
   });
 
+  /* ---------- 本地访问令牌（重置；需持旧令牌通过校验） ---------- */
+  app.post('/api/auth/reset-token', (req, res) => {
+    if (!TOKEN_ENABLED) return res.status(400).json({ error: '令牌校验未启用' });
+    rawSettings.authToken = crypto.randomBytes(32).toString('hex');
+    persistSettings();
+    res.json({ ok: true, token: rawSettings.authToken });
+  });
+
   /* ---------- 存储统计 ---------- */
   app.get('/api/stats', (req, res) => {
     let total = 0;
@@ -1178,6 +1273,23 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
   /* ---------- 后台任务：批量处理（队列 + 进度 + 取消） ---------- */
   const jobs = new Map();
   const MAX_JOBS = 20;
+  const persistJobs = () => persistWithLock(JOBS_FILE, [...jobs.values()]);
+
+  // v1.2.1：启动时从 jobs.json 恢复历史任务。
+  // 重启时仍在 running 的任务标记为 error（不自动续跑），保留进度/错误信息供查看。
+  function loadPersistedJobs() {
+    const saved = loadJSON(JOBS_FILE, []);
+    if (!Array.isArray(saved)) return;
+    for (const j of saved) {
+      if (!j || !j.id) continue;
+      if (j.status === 'running') {
+        j.status = 'error';
+        j.error = '应用重启，任务中断（已完成的照片保留，未处理部分不自动续跑）';
+      }
+      jobs.set(j.id, j);
+    }
+  }
+  loadPersistedJobs();
 
   function createJob(type, payload) {
     const job = {
@@ -1200,69 +1312,83 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
       const finished = [...jobs.entries()].find(([, j]) => j.status !== 'running');
       if (finished) jobs.delete(finished[0]);
     }
+    persistJobs();
     return job;
   }
 
+  // 批量任务并发度：2 路并行。串行太慢（大量照片时明显），过高则 sharp 内存峰值失控
+  const BATCH_CONCURRENCY = 2;
+
   async function runBatchJob(job) {
     const { ids, pipeline, mode } = job.payload;
-    try {
-      for (const id of ids) {
-        if (job.canceled) {
-          job.status = 'canceled';
-          break;
-        }
-        const p = db.photos.find(x => x.id === id);
-        if (!p) {
-          job.errors.push({ id, error: '未找到' });
-          job.done++;
-          continue;
-        }
-        job.current = { id, name: p.name };
-        try {
-          const opts = JSON.parse(JSON.stringify(pipeline || {}));
-          // 保持原格式：按每张照片的真实格式决定输出（gif/tiff/bmp 不支持时回退 jpeg）
-          if (opts.output && opts.output.format === 'keep') {
-            opts.output.format = FMT_EXT[p.format] || 'jpeg';
-          }
-          // 按百分比缩放：以每张照片自身像素为准
-          const scale = clampNum(opts.resizeScale, 0.05, 1, 1);
-          if (scale < 1 && p.width && p.height) {
-            opts.resize = {
-              width: Math.max(1, Math.round(p.width * scale)),
-              height: Math.max(1, Math.round(p.height * scale)),
-            };
-          }
-          delete opts.resizeScale;
-
-          const full = path.join(DIRS.uploads, p.file);
-          const { buffer, ext } = await runPipelineLogged(full, opts, settings);
-          if (mode === 'overwrite') {
-            const newName = p.id + '.' + ext;
-            const newPath = path.join(DIRS.uploads, newName);
-            if (newName !== p.file) await fsp.rm(full, { force: true });
-            await fsp.writeFile(newPath, buffer);
-            Object.assign(p, await buildMeta(newPath, p.id, p.name));
-            await makeThumb(newPath, p.id, settings.thumbSize, DIRS.thumbs);
-            job.results.push({ id, name: p.name, mode: 'overwrite' });
-          } else {
-            const newId = nanoid(10);
-            const newName = newId + '.' + ext;
-            const newPath = path.join(DIRS.uploads, newName);
-            await fsp.writeFile(newPath, buffer);
-            await makeThumb(newPath, newId, settings.thumbSize, DIRS.thumbs);
-            const baseName = p.name.replace(/\.[^.]+$/, '');
-            const meta = await buildMeta(newPath, newId, `${baseName}_edited.${ext}`);
-            db.photos.push(meta);
-            job.results.push({ id, name: meta.name, mode: 'copy', newId });
-          }
-          persistDB();
-        } catch (e) {
-          job.errors.push({ id, name: p.name, error: e.message });
-        }
+    // 单张照片处理（错误隔离：失败只记录，不中断整批）
+    const processOne = async (id) => {
+      if (job.canceled) return;
+      const p = db.photos.find(x => x.id === id);
+      if (!p) {
+        job.errors.push({ id, error: '未找到' });
         job.done++;
-        job.current = null;
+        return;
       }
+      job.current = { id, name: p.name };
+      try {
+        const opts = JSON.parse(JSON.stringify(pipeline || {}));
+        // 保持原格式：按每张照片的真实格式决定输出（gif/tiff/bmp 不支持时回退 jpeg）
+        if (opts.output && opts.output.format === 'keep') {
+          opts.output.format = FMT_EXT[p.format] || 'jpeg';
+        }
+        // 按百分比缩放：以每张照片自身像素为准
+        const scale = clampNum(opts.resizeScale, 0.05, 1, 1);
+        if (scale < 1 && p.width && p.height) {
+          opts.resize = {
+            width: Math.max(1, Math.round(p.width * scale)),
+            height: Math.max(1, Math.round(p.height * scale)),
+          };
+        }
+        delete opts.resizeScale;
+
+        const full = path.join(DIRS.uploads, p.file);
+        const { buffer, ext } = await runPipelineLogged(full, opts, settings);
+        if (mode === 'overwrite') {
+          const newName = p.id + '.' + ext;
+          const newPath = path.join(DIRS.uploads, newName);
+          if (newName !== p.file) await fsp.rm(full, { force: true });
+          await fsp.writeFile(newPath, buffer);
+          Object.assign(p, await buildMeta(newPath, p.id, p.name));
+          await makeThumb(newPath, p.id, settings.thumbSize, DIRS.thumbs);
+          job.results.push({ id, name: p.name, mode: 'overwrite' });
+        } else {
+          const newId = nanoid(10);
+          const newName = newId + '.' + ext;
+          const newPath = path.join(DIRS.uploads, newName);
+          await fsp.writeFile(newPath, buffer);
+          await makeThumb(newPath, newId, settings.thumbSize, DIRS.thumbs);
+          const baseName = p.name.replace(/\.[^.]+$/, '');
+          const meta = await buildMeta(newPath, newId, `${baseName}_edited.${ext}`);
+          db.photos.push(meta);
+          job.results.push({ id, name: meta.name, mode: 'copy', newId });
+        }
+        await persistDBWithRetry();
+      } catch (e) {
+        job.errors.push({ id, name: p.name, error: e.message });
+      }
+      job.done++;
+      job.current = null;
+      // 每张照片后落盘任务进度，重启后可恢复
+      try { persistJobs(); } catch { /* 落盘失败不阻断处理 */ }
+    };
+    // 有限并发池：worker 从共享索引取下一张，取完为止（取消时不再取新任务）
+    let next = 0;
+    const workers = Array.from({ length: Math.min(BATCH_CONCURRENCY, Math.max(ids.length, 1)) }, async () => {
+      while (next < ids.length && !job.canceled) {
+        const i = next++;
+        await processOne(ids[i]);
+      }
+    });
+    try {
+      await Promise.all(workers);
       if (job.status !== 'canceled') job.status = 'done';
+      try { persistJobs(); } catch { /* 忽略 */ }
       logger.info('backend', `批量处理完成 job=${job.id}`, {
         total: job.total,
         done: job.done,
@@ -1271,6 +1397,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
     } catch (e) {
       job.status = 'error';
       job.error = e.message;
+      try { persistJobs(); } catch { /* 忽略 */ }
       logger.error('backend', '批量处理任务异常', { job: job.id, message: e.message });
     }
   }
@@ -1295,6 +1422,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: '任务不存在' });
     if (job.status === 'running') job.canceled = true;
+    try { persistJobs(); } catch { /* 落盘失败不阻断取消 */ }
     res.json({ ok: true, status: job.status });
   });
 
@@ -1401,6 +1529,12 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
 
   /* ---------- 统一错误处理 ---------- */
   app.use((err, req, res, next) => {
+    // 写锁冲突：返回 409（前端提示另一实例正在写入）
+    if (err && err.lumaWriteConflict) {
+      logger.warn('backend', '写锁冲突', { path: req.path, message: err.message });
+      if (res.headersSent) return next(err);
+      return res.status(409).json({ error: err.message });
+    }
     logger.error('backend', '未处理的请求错误', {
       path: req.path,
       message: err && err.message,
@@ -1410,7 +1544,13 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.0', isE
   });
 
   logger.info('system', 'Luma Studio 应用初始化完成', { version, isElectron });
-  return { app, logger, getDb: () => db, getSettings: () => settings };
+  return {
+    app,
+    logger,
+    getDb: () => db,
+    getSettings: () => settings,
+    getAuthToken: () => rawSettings.authToken,
+  };
 }
 
 module.exports = {

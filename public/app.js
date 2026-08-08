@@ -1,12 +1,25 @@
 /* ============ 工具 ============ */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+// v1.2.1 本地访问令牌：Electron 场景经 preload 获取，写请求自动携带 X-Luma-Token 头；
+// 纯浏览器/测试场景无令牌且服务端不强制校验，行为与旧版一致。
+let authToken = '';
 const api = {
   async get(u){ const r = await fetch(u); return r.json(); },
-  async post(u, b){ const r = await fetch(u, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); return r.json(); },
-  async put(u, b){ const r = await fetch(u, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); return r.json(); },
-  async del(u){ const r = await fetch(u, {method:'DELETE'}); return r.json(); },
+  async post(u, b){ const r = await fetch(u, {method:'POST',headers:{'Content-Type':'application/json', ...(authToken ? {'X-Luma-Token': authToken} : {})},body:JSON.stringify(b)}); return r.json(); },
+  async put(u, b){ const r = await fetch(u, {method:'PUT',headers:{'Content-Type':'application/json', ...(authToken ? {'X-Luma-Token': authToken} : {})},body:JSON.stringify(b)}); return r.json(); },
+  async del(u){ const r = await fetch(u, {method:'DELETE', headers: authToken ? {'X-Luma-Token': authToken} : {}}); return r.json(); },
 };
+// 启动时经 preload IPC 获取访问令牌（非 Electron 环境返回空串）
+async function initAuthToken(){
+  try {
+    if (window.luma && typeof window.luma.getToken === 'function') {
+      const t = await window.luma.getToken();
+      if (typeof t === 'string') return t;
+    }
+  } catch (e) { console.error('获取访问令牌失败', e); }
+  return '';
+}
 const fmtSize = n => n < 1024 ? n+' B' : n < 1048576 ? (n/1024).toFixed(1)+' KB' : (n/1048576).toFixed(2)+' MB';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // 触发浏览器下载某张照片的原图文件
@@ -440,6 +453,7 @@ function uploadOne(f, bar, i, total){
     fd.append('photos', f);
     const xhr = new XMLHttpRequest();
     xhr.open('POST','/api/upload');
+    if (authToken) xhr.setRequestHeader('X-Luma-Token', authToken);
     xhr.upload.onprogress = e=>{
       if(e.lengthComputable) bar.style.width = ((i + e.loaded/e.total) / total * 90 + 5) + '%';
     };
@@ -1374,7 +1388,7 @@ $('#downloadBtn').onclick = async ()=>{
   const body = buildEditBody('copy');
   try{
     const resp = await fetch(`/api/photos/${current.id}/render`, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+      method:'POST', headers:{'Content-Type':'application/json', ...(authToken ? {'X-Luma-Token': authToken} : {})}, body:JSON.stringify(body),
     });
     if(!resp.ok){ const j = await resp.json().catch(()=>({})); throw new Error(j.error||'渲染失败'); }
     const blob = await resp.blob();
@@ -1574,6 +1588,7 @@ async function loadSettings(){
   $('#setThumb').value = settings.thumbSize;
   $('#setAccent').value = settings.accent;
   $('#setAutoAdvance').checked = settings.autoAdvance !== false;
+  const logsSel = $('#setLogsRefresh'); if (logsSel) logsSel.value = String(settings.logsRefreshInterval || 3);
   applyAccent(settings.accent);
   applyTheme(settings.theme || 'light');
   // 色板
@@ -1605,9 +1620,10 @@ $('#saveSettings').onclick = async ()=>{
     autoAdvance: $('#setAutoAdvance').checked,
     theme: $('#setTheme').checked ? 'dark' : 'light',
     reduceMotion: $('#setReduceMotion').value,
+    logsRefreshInterval: +($('#setLogsRefresh') ? $('#setLogsRefresh').value : 3),
   };
   const r = await api.post('/api/settings', body);
-  if(r.ok){ settings=r.settings; applyAccent(settings.accent); applyTheme(settings.theme); toast('设置已保存 ✓'); }
+  if(r.ok){ settings=r.settings; applyAccent(settings.accent); applyTheme(settings.theme); startLogsAutoRefresh(); toast('设置已保存 ✓'); }
 };
 async function loadStats(){
   const s = await api.get('/api/stats');
@@ -1627,6 +1643,38 @@ async function loadStats(){
       btn.disabled = true;
       btn.title = '打开数据目录仅桌面版可用';
     }
+  }
+  // v1.2.1 本地访问令牌：设置页展示 / 复制 / 重新生成（仅 Electron 可用）
+  const tokenEl = $('#stToken');
+  const copyBtn = $('#copyTokenBtn');
+  const resetBtn = $('#resetTokenBtn');
+  if (tokenEl && window.luma && typeof window.luma.getToken === 'function') {
+    const t = await window.luma.getToken();
+    if (t) {
+      tokenEl.textContent = t;
+      if (copyBtn) {
+        copyBtn.disabled = false;
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(t);
+          toast('令牌已复制 ✓');
+        };
+      }
+      if (resetBtn) {
+        resetBtn.disabled = false;
+        resetBtn.onclick = async () => {
+          const r = await api.post('/api/auth/reset-token', {});
+          if (r && r.ok && r.token) {
+            authToken = r.token; // 更新本地令牌，后续写请求使用新令牌
+            tokenEl.textContent = r.token;
+            toast('令牌已重新生成 ✓');
+          } else {
+            toast('重新生成失败:' + ((r && r.error) || '未知错误'), true);
+          }
+        };
+      }
+    }
+  } else if (tokenEl) {
+    tokenEl.textContent = '仅桌面版可用';
   }
 }
 
@@ -1745,7 +1793,7 @@ $('#batchZip').onclick = async ()=>{
   toast(`正在打包 ${ids.length} 张照片…`);
   showLoading();
   try{
-    const resp = await fetch('/api/photos/download-zip',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ids }) });
+    const resp = await fetch('/api/photos/download-zip',{ method:'POST', headers:{'Content-Type':'application/json', ...(authToken ? {'X-Luma-Token': authToken} : {})}, body:JSON.stringify({ ids }) });
     if(!resp.ok) throw new Error('打包失败');
     const blob = await resp.blob();
     const a = document.createElement('a');
@@ -2388,7 +2436,7 @@ async function logFrontend(level, message, data = null) {
     // 发送到后端记录
     await fetch('/api/logs/frontend', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(authToken ? {'X-Luma-Token': authToken} : {}) },
       body: JSON.stringify({ level, message, data })
     }).catch(() => {}); // 静默失败，不影响主流程
   } catch (e) {
@@ -2450,15 +2498,16 @@ function bindLogFilters(){
   }
 }
 
-// 自动刷新日志（当日志页面激活时）
+// 自动刷新日志（当日志页面激活时）；间隔由设置 logsRefreshInterval 控制（v1.2.1）
 function startLogsAutoRefresh(){
   if (logsRefreshTimer) clearInterval(logsRefreshTimer);
+  const intervalMs = (settings.logsRefreshInterval || 3) * 1000;
   logsRefreshTimer = setInterval(() => {
     const logsView = document.querySelector('.view[data-view="logs"].active');
     if (logsView && logsAutoRefresh) {
       loadLogs();
     }
-  }, 3000); // 每 3 秒刷新
+  }, intervalMs);
 }
 
 function stopLogsAutoRefresh(){
@@ -2560,6 +2609,7 @@ function showSelectModal(title, options = [], hint = '') {
 
 /* ============ 启动 ============ */
 (async function init(){
+  authToken = await initAuthToken();
   await loadSettings();
   await loadPhotos();
   await loadAlbums();
