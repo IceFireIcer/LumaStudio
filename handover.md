@@ -8,8 +8,8 @@
 - **项目**：Luma Studio · 光影工作室 —— 自托管桌面版图片查看器与 Lightroom 风格编辑器
 - **形态**：Electron 桌面应用（Node.js + Express 后端，sharp/libvips 图像管线，原生 HTML/CSS/JS 前端，零构建步骤）
 - **仓库**：https://github.com/IceFireIcer/LumaStudio ，单一分支 `main`（git 仓库根 = 本目录）
-- **当前版本**：v1.2.1（2026-08-08：多开支持 + 本地令牌 + 写锁 + 任务落盘 + 性能优化 + 错误体验；已通过 `npm test` 44 个与 UI 冒烟全绿），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
-- **最近版本发布提交**：`0afffc9` release: 发布 v1.1.0（选片工作流增强）；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
+- **当前版本**：v1.2.1（2026-08-08 已发布，tag `v1.2.1`，GitHub Release 含安装版/便携版产物），`package.json` / `package-lock.json` / `server-app.cjs` 默认值 / `index.html` 关于页版本号同步维护
+- **最近版本发布提交**：v1.2.1 随 `044e205`（docs）发布；v1.2.0 为 `527e621` release: 发布 v1.2.0；v1.2 规格见 `docs/ui-redesign.md`（唯一事实来源），最新 HEAD 以 `git log` 为准
 - **README 政策（v1.1.0 起）**：仅保留中文主文档 `README.md` 与英文版 `README_en.md`，de/es/fr/ja/ko 变体已移除，勿再新增
 
 ## 2. 代码结构（仓库根）
@@ -18,7 +18,7 @@
 |---|---|
 | `server-app.cjs` | 唯一事实来源：Express 应用、图像处理管线、日志、EXIF 读写、PNG/WebP chunk 写入、相册/批量/后台任务/ZIP/搜索等全部 REST API |
 | `electron-main.cjs` | Electron 主进程：数据目录解析（便携版/安装版）、单实例锁、OOBE 注册表、启动服务器与窗口 |
-| `preload.cjs` | Electron preload：`contextBridge` 暴露 `window.luma.openDataDir()`（打开数据目录，v1.2 新增） |
+| `preload.cjs` | Electron preload：`contextBridge` 暴露 `window.luma.openDataDir()`（打开数据目录，v1.2 新增）与 `window.luma.getToken()`（本地访问令牌，v1.2.1 新增） |
 | `electron-launch.cjs` | 启动器（spawn Electron，清理 `ELECTRON_RUN_AS_NODE` 污染） |
 | `public/` | 前端：`index.html` / `style.css` / `app.js` / `ui-anim.js`（GSAP 动画层）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
 | `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互、v1.2 验收用例、EXIF 方向防重叠回归（`MASONRY`）与 v1.2.1 损坏 WebP 写 EXIF 回归（`WEBP400`），捕获渲染进程错误 |
@@ -72,7 +72,7 @@
 
 - **安装版**：数据在 `%APPDATA%\luma-studio`（uploads / thumbs / data / log）
 - **便携版**（electron-builder portable 目标）：检测 `process.env.PORTABLE_EXECUTABLE_DIR`，数据存 **exe 旁 `storage/`**；首次运行若 exe 旁无数据而 AppData 有，则**复制**（不是移动，避免搬空安装版数据）一次；exe 目录不可写时回退 userData 并打印警告
-- **单实例锁仍基于 userData**：便携版与安装版不能同时运行（端口 13579 固定，本就不能并存）
+- **单实例锁基于 userData**：便携版与安装版数据目录不同可并存；同目录重复启动时新实例弹原生对话框选「关闭」或「多开换端口」（v1.2.1 起，多开共享数据、文件锁兜底写冲突）
 - OOBE 完成状态在 Windows 注册表 `HKCU\Software\LumaStudio`（便携版也写注册表，属已知取舍）
 - 旧版（v1.0.5 之前）数据在 exe 旁 `storage`：安装版启动时会迁移到 userData
 
@@ -84,14 +84,14 @@
 - 损坏或不支持的变体（部分动画 WebP）会安全返回 400，不写坏原图
 - 相关函数：`readPngExif / writePngExif / readWebpChunks / readWebpExif / writeWebpExif / loadTiffFromChunk / crc32`（已导出，便于测试）
 
-### 4.3 批量处理与后台任务（v1.1.0，技术要点）
+### 4.3 批量处理与后台任务（v1.1.0 引入，v1.2.1 更新）
 
 - 路由顺序：`/api/photos/batch/*`（stars/flag/delete/process）**必须注册在 `/api/photos/:id` 之前**，否则 `batch` 会被当作 `:id` 吞掉返回 404（v1.1.0 修复，有回归测试锁定）
 - `POST /api/photos/batch/process`：`{ ids, pipeline, mode }` → 立即返回 `{ jobId, total }`；`ids` 上限 500
-- 任务状态保存在**内存** `jobs` Map（`createAppServer` 闭包内），最多保留 20 个（只清理已结束任务）；`GET /api/jobs/:id` 轮询进度，`POST /api/jobs/:id/cancel` 置 `canceled` 标志，循环在每张照片之间检查
-- 逐张顺序处理（避免 sharp 并发内存压力）；每张照片独立 try/catch，**错误隔离不中断整批**；每处理一张 `persistDB()` 一次
+- 任务状态存**内存** `jobs` Map（`createAppServer` 闭包内），最多保留 20 个（只清理已结束任务）；**v1.2.1 起同步落盘 `jobs.json`**（create/每张/结束/取消时 `persistJobs`，写锁兜底），重启时 `loadPersistedJobs` 恢复记录、`running` → `error`（"应用重启，任务中断"，不自动续跑）
+- **v1.2.1 起 2 路有限并发**（worker 共享索引，不再逐张串行）；每张照片独立 try/catch，**错误隔离不中断整批**；每处理一张 `persistDB()` 一次（`persistDBWithRetry` 3×200ms 兜底写锁冲突）
 - `pipeline.output.format === 'keep'` 时按每张照片真实格式解析（gif/tiff/bmp 不支持输出，回退 jpeg）；`pipeline.resizeScale`（0.05–1）按每张照片自身像素换算宽高
-- 任务与进度**不持久化**：应用重启后任务记录消失，但已落盘的照片（含副本）保留
+- 中断任务不自动续跑；已生成的副本/覆盖结果不回滚
 
 ### 4.4 前端（v1.1.0 更新）
 
@@ -138,8 +138,29 @@
 
 ## 7. 下一步建议
 
-- **v1.2.1 已就绪**：多开 / 令牌 / 写锁 / 任务落盘 / 性能优化 / 错误体验批次已完成，`npm test` 44 个全绿 + UI 冒烟全绿，按发版流程发布 v1.2.1
-- 新功能候选（已列入 ROADMAP“计划中”，待确认优先级）：编辑版本链（非破坏式）→ 时间线/日历浏览 → 标签体系 → 回收站 + 全库备份 → 更多 EXIF 字段编辑 → 便携版与安装版数据迁移工具
+### 未开发功能（ROADMAP「计划中」，6 项，待确认优先级）
+| 功能 | 说明 | 相对复杂度 |
+|---|---|---|
+| 编辑版本链 | 每张照片保留原图 + 历史版本，可回退/对比（非破坏式编辑） | 高 |
+| 时间线 / 日历浏览 | 按拍摄/导入时间聚合浏览 | 中 |
+| 标签体系 | 一图多标签 + 标签筛选（收藏夹之外的第二维度） | 中 |
+| 回收站 + 全库备份/恢复 | 删除可恢复，一键导出 db + 原图 | 中高 |
+| 更多 EXIF 字段编辑 | GPS、拍摄参数等（当前仅 Artist/Copyright/Description/DateTime/Software） | 中 |
+| 便携版↔安装版数据迁移工具 | 两套数据目录互相迁移 | 低中 |
+
+### 未修复 bug / 风险（值得做的优先项，按数据安全排序）
+1. **批量任务中断不自动续跑**：v1.2.1 已落盘 `jobs.json`，但重启时 running 任务只标记「中断」，需手动重跑；大任务中途退出损失进度
+2. **批量已生成结果不回滚**：覆盖模式下已写盘照片不会还原原图（`persistDBWithRetry` 只兜底 db 写入，不改文件）
+3. **多开并发编辑无强隔离**：写锁只挡同一瞬间的 db/draft 写冲突，两个实例同时编辑同一张照片仍可能互相覆盖
+4. **便携版 OOBE 写注册表**：grill 时已确认维持现状（已知取舍），便携版换电脑会带旧 OOBE 状态
+5. **无公网认证**：仅本地令牌（Electron 生产写请求），暴露公网仍不安全
+
+### 已接受的取舍（不建议改）
+- 动画/损坏 WebP 写 EXIF 400 拒绝（安全保护，文案已友好）
+- 键盘快捷键对比模式优先级最高（吞掉灯箱/相册按键）
+- 减弱动效时 GSAP 降级为 CSS 过渡（遵循系统偏好）
+
+### 流程提示
 - 若新增前端交互，请同步扩展 `scripts/ui-smoke.cjs` 覆盖
 - 若修 bug，按 AGENTS.md 先补 node:test 回归测试
 

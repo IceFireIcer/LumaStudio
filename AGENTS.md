@@ -9,9 +9,11 @@ The repository has a single branch, `main` (the former `electron` branch, rename
 Source layout (repository root):
 
 - `server-app.cjs` — shared Express app + image pipeline (single source of truth)
-- `electron-main.cjs` — Electron main process (window, single-instance lock, data dir)
+- `electron-main.cjs` — Electron main process (window, single-instance lock / multi-open dialog, data dir, OOBE registry)
+- `preload.cjs` — contextBridge preload (`window.luma.openDataDir()` / `getToken()`)
 - `electron-launch.cjs` — launcher that spawns Electron
-- `public/` — frontend: `index.html`, `style.css`, `app.js`
+- `public/` — frontend: `index.html`, `style.css`, `app.js`, `ui-anim.js` (GSAP layer), `vendor/gsap/`
+- `scripts/ui-smoke.cjs` — Electron UI smoke test
 - `test/` — node:test regression suite
 - `CHANGELOG.md` — release notes
 
@@ -23,7 +25,8 @@ Requires Node.js >= 18. Run from the repository root:
 
 - `npm install` — install dependencies
 - `npm start` / `npm run dev` / `npm run electron` — launch the desktop app
-- `npm test` — run the regression suite
+- `npm test` — run the node:test regression suite (44 tests)
+- `npx electron scripts/ui-smoke.cjs` — UI smoke test (clear `ELECTRON_RUN_AS_NODE` env first if set)
 - `npm run build:win|mac|linux` — package installers into `release/`
 
 ## Coding Style & Naming Conventions
@@ -36,7 +39,15 @@ Requires Node.js >= 18. Run from the repository root:
 
 ## Testing Guidelines
 
-Regression tests live in `test/` and use the built-in `node:test` runner — run `npm test`. When fixing a bug, add a test that reproduces it first (existing coverage: rotation/crop coordinates, lossless EXIF stripping, request logging, settings validation, CSRF, upload sanitization, DB corruption recovery).
+Regression tests live in `test/` and use the built-in `node:test` runner — run `npm test`. When fixing a bug, add a test that reproduces it first. Existing coverage: rotation/crop coordinates, lossless EXIF stripping, request logging, settings validation, CSRF, upload sanitization, DB corruption recovery, PNG/WebP EXIF round-trip, Chinese filenames/EXIF, batch routes, drafts, EXIF orientation, local access token (401/reset/default-off), file write locks (409/stale takeover), batch job persistence (restore/interrupted), WebP 400 friendly message, `logsRefreshInterval` validation.
+
+UI smoke (`scripts/ui-smoke.cjs`, real Electron) must be extended for new front-end interactions; it asserts `CONSOLE-ERRORS []` plus markers like `MASONRY`, `DROP-ONCE`, `ALBUM-BATCH`, `DRAFT`, `WEBP400`.
+
+## Current Gaps (see ROADMAP.md / handover.md)
+
+Not yet implemented: edit version chains (non-destructive), timeline/calendar browsing, tags, recycle bin + full-library backup, more EXIF field editing (GPS etc.), portable↔installed data migration tool.
+
+Open bugs worth fixing (data-safety priority): interrupted batch jobs don't auto-resume; batch overwrite results aren't rolled back; multi-open concurrent edits to the same photo aren't strongly isolated; portable OOBE still writes the registry; no public-network auth (local token only).
 
 ## Commit & Pull Request Guidelines
 

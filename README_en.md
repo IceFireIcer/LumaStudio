@@ -10,6 +10,14 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 
 ## Features
 
+### Multi-open, Security & Reliability (v1.2.1)
+- **Multi-open support**: when another instance is detected, a native dialog asks you to "Close new instance" or "Open a second window" (auto-selects a free port, shares the same data directory — suited for read-only browsing)
+- **Per-file write locks**: when multiple instances share the data directory, writes to `db.json` / `drafts.json` / `settings.json` / job state are guarded by file locks; a write while another instance holds the lock returns a conflict message; stale locks are taken over automatically
+- **Local access token**: a random token is generated on first run; write requests must carry `X-Luma-Token` (protects against other local processes / malicious pages); the Settings page can view / copy / regenerate it
+- **Batch job persistence**: job state is written to `jobs.json` and restored after restart; interrupted jobs keep their progress (no auto-resume)
+- **Performance**: batch processing uses 2-way limited concurrency; the logs page refresh interval is configurable (3 / 10 / 30 s)
+- **Better errors**: EXIF writes to broken / animated WebP return a friendly message; startup failures show a native error dialog instead of silently quitting
+
 ### Design System & Global Components (v1.2)
 - **Dark mode**: manual light / dark toggle sharing the same accent color, with neutral colors adapted automatically
 - **Unified design tokens**: colors, spacing, radius, shadows, typography and motion are tokenized; custom scrollbars and keyboard focus styles
@@ -78,6 +86,7 @@ Luma Studio turns your machine into a private photo workshop. Browse your librar
 ### Settings & About
 - Default export format & quality, thumbnail size, theme accent color
 - **Appearance card (v1.2)**: dark-mode switch, reduced-motion tri-state, shortcut cheatsheet entry, open-data-directory button
+- **System card (v1.2.1)**: logs page refresh interval (3 / 10 / 30 s); access-token view / copy / regenerate in the storage card
 - **Log upgrades (v1.2)**: search, pause live refresh, row expand & copy
 - Runtime info: Node version, sharp/libvips version, photo count, storage used, uptime
 
@@ -203,6 +212,7 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 | `GET` | `/api/jobs/:id` | Query background job progress |
 | `POST` | `/api/jobs/:id/cancel` | Cancel a background job |
 | `POST` | `/api/photos/download-zip` | Download as ZIP `{ ids }` |
+| `POST` | `/api/auth/reset-token` | Reset the local access token (old token required) |
 | `GET` | `/api/albums` | List albums (each with first-photo `cover`) |
 | `POST` | `/api/albums` | Create album `{ name }` |
 | `DELETE` | `/api/albums/:id` | Delete album |
@@ -232,8 +242,9 @@ All photos are stored as real files in `storage/uploads/`, thumbnails in `storag
 ## Notes
 
 - **EXIF writing** supports JPEG / PNG / WebP (lossless chunk-level writes). UTF-8 / CJK text is preserved.
-- On **Windows**, sharp cache is disabled (`sharp.cache(false)`) to avoid file-handle locks.
-- **No authentication** — designed for local / personal use. Don't expose to the public internet without a reverse proxy.
+- On **Windows**, sharp cache is disabled (`sharp.cache(false)`) to avoid file-handle locks; other platforms use the default cache.
+- **Security**: the desktop build validates a local access token (`X-Luma-Token`, viewable/regenerable in Settings) for write requests. Still designed for local / personal use — don't expose to the public internet without a reverse proxy.
+- **Multi-open**: a second instance shares the same data directory and is suited for read-only browsing; concurrent edits from two instances should still be avoided (write locks only guard momentary write conflicts).
 - **Chinese EXIF**: Write uses `Buffer.from(text,'utf8').toString('latin1')`; read decodes latin1→UTF-8. This preserves multi-byte characters that piexifjs would otherwise lose.
 
 ---
