@@ -1,14 +1,24 @@
 # Changelog
 
-## Unreleased
+## v1.3.0
 
 ### 中文
 - **标签体系**：一图多标签（任意文本，支持中文）——信息页标签编辑（chips 展示 / 输入添加 / 点击删除）、工具栏标签筛选下拉、批量添加标签、标签云计数（`GET /api/tags`），作为收藏夹之外的第二组织维度
 - 标签直接挂在照片记录（`photo.tags`），删除照片即随之消失，无独立标签表（零孤儿数据）；旧数据无 `tags` 字段自动回退为空数组，无需迁移
+- 版本号同步至 v1.3.0（package.json / package-lock.json / server-app.cjs 默认值 / 关于页）
 
 ### English
 - **Tag system**: multiple free-form tags per photo (Chinese supported) — editable in the info panel (chip display / add by input / remove by click), toolbar tag filter dropdown, batch tag add, and a tag cloud with counts (`GET /api/tags`), as a second organization dimension alongside albums
 - Tags live directly on each photo record (`photo.tags`) and disappear with the photo — no separate tag table (no orphan data); legacy photos without a `tags` field fall back to an empty array, no migration needed
+- Version bumped to v1.3.0 (package.json / package-lock.json / server-app.cjs default / About page)
+
+### Notes
+- New APIs: `POST /api/photos/:id/tags` (replace), `POST /api/photos/batch/tags` (`mode: set|add|remove`), `GET /api/tags` (tag cloud), `GET /api/search?tag=` (exact filter). Tags are free-form strings on `photo.tags`; they vanish with the photo (no orphan data).
+- Tag names are trimmed/deduped, capped at 50 chars each and 20 per photo by the backend sanitizer.
+
+### Release Assets
+- `Luma Studio Setup 1.3.0.exe` — Windows 安装版（推荐大多数用户）
+- `Luma Studio 1.3.0.exe` — Windows 便携版（免安装，数据跟随 exe）
 
 ---
 

@@ -741,7 +741,7 @@ function extractExifTiff(buf, ext) {
 }
 
 /* ============ Express 应用 ============ */
-function createAppServer({ port, dirs, logDir, publicDir, version = '1.2.1', isElectron = false, requireToken = null }) {
+function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.0', isElectron = false, requireToken = null }) {
   // sharp 缓存策略：Windows 上禁用内部缓存避免文件句柄锁定（历史问题，保持现状）；
   // 其他平台启用默认缓存，重复解码同图时提升性能（v1.2.1 权衡后仅按平台差异处理）。
   if (process.platform === 'win32') sharp.cache(false);
