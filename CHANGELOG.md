@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.3.1
+
+### 中文
+- **修复快捷键速查浮层文字横向溢出**：说明文字缺少 `min-width:0` + 换行收缩，长文本会把行撑出模态框（文字「飘出去」）；修复后说明文字占满剩余空间并自动换行，键位贴右不压缩
+- 浮层高度超限时内部列表正确滚动（`.modal-body` 增加 `min-height:0` 使 flex 子项可收缩），不再整体挤出
+- 版本号同步至 v1.3.1（package.json / package-lock.json / server-app.cjs 默认值 / 关于页）
+
+### English
+- **Fix text horizontally overflowing the shortcut cheatsheet modal**: the description column lacked `min-width:0` + wrap behavior, so long text pushed rows out of the modal ("floating" text); descriptions now fill the remaining space and wrap, with the key chips pinned right without shrinking
+- The inner list now scrolls correctly when the modal exceeds its max height (`.modal-body` gained `min-height:0` so flex children can shrink) instead of spilling out
+- Version bumped to v1.3.1 (package.json / package-lock.json / server-app.cjs default / About page)
+
+### Notes
+- UI-only regression fix; no API or data-model changes. The UI smoke test's `SHORTCUTS` scenario now asserts that no `.shortcut-item` overflows the modal content box (`overflow=[]`).
+
+### Release Assets
+- `Luma Studio Setup 1.3.1.exe` — Windows 安装版（推荐大多数用户）
+- `Luma Studio 1.3.1.exe` — Windows 便携版（免安装，数据跟随 exe）
+
+---
+
 ## v1.3.0
 
 ### 中文
