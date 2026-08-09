@@ -33,6 +33,8 @@ const {
   writeWebpExif,
   readWebpChunks,
   sanitizeTags,
+  readJpegOrientation,
+  extractExifTiff,
 } = require('../server-app.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -212,6 +214,42 @@ test('stripMetadata: 保留方向标记（避免图片侧躺）', async () => {
   await stripMetadata(file);
   const obj = piexif.load(fs.readFileSync(file).toString('binary'));
   assert.equal((obj['0th'] || {})[piexif.ImageIFD.Orientation], 6, '方向标记应保留');
+});
+
+test('stripMetadata: EXIF 段损坏时兜底仍保留方向标记', async () => {
+  const d = tmpdir();
+  const file = path.join(d, 'oriented-corrupt.jpg');
+  const plain = await makeNoiseJpeg(false);
+  // 构造带方向 6 的 JPEG，再把 TIFF IFD0 条目计数改为 0xFFFF 使 piexif.load 抛异常，
+  // 但 JPEG 段结构完好（piexif.remove / sharp 仍可用）——模拟「EXIF 内容损坏的合法 JPEG」。
+  const bin = Buffer.from(
+    piexif.insert(piexif.dump({ '0th': { [piexif.ImageIFD.Orientation]: 6 } }), plain.toString('binary')),
+    'binary'
+  );
+  const tiff = extractExifTiff(bin, '.jpg');
+  const isLE = tiff[0] === 0x49;
+  const ifd0 = isLE ? tiff.readUInt32LE(4) : tiff.readUInt32BE(4);
+  const exifPos = bin.indexOf(Buffer.from('Exif\0\0', 'binary'));
+  const corrupt = Buffer.from(bin);
+  corrupt[exifPos + 6 + ifd0] = 0xFF;       // IFD0 count 低字节
+  corrupt[exifPos + 6 + ifd0 + 1] = 0xFF;   // IFD0 count 高字节
+  fs.writeFileSync(file, corrupt);
+
+  // 确认 piexif.load 确实抛异常（走 catch 兜底）
+  await assert.rejects(async () => {
+    piexif.load(corrupt.toString('binary'));
+  });
+
+  // readJpegOrientation 应能从原始字节读出方向 6（即便 IFD0 计数已损坏）
+  assert.equal(readJpegOrientation(corrupt), 6, '应从原始字节读出方向标记');
+
+  await stripMetadata(file);
+  // 抹除后方向仍应保留，且文件仍是合法 JPEG
+  const after = fs.readFileSync(file);
+  const meta = await sharp(after).metadata();
+  assert.ok(meta.format === 'jpeg', '抹除后应为合法 JPEG');
+  const obj = piexif.load(after.toString('binary'));
+  assert.equal((obj['0th'] || {})[piexif.ImageIFD.Orientation], 6, '损坏 EXIF 兜底抹除后方向应保留');
 });
 
 test('sanitizeZipName: 净化非法字符与路径', () => {
@@ -758,6 +796,42 @@ test('HTTP: 批量任务取消接口语义正确', async () => {
     const cj = await cancel.json();
     assert.equal(cj.ok, true);
     assert.equal(cj.status, 'done');
+  } finally {
+    await closeServer(srv);
+  }
+});
+
+test('HTTP: running 中的批量任务取消后最终状态为 canceled 而非 done', async () => {
+  const { srv, base } = await startServer();
+  try {
+    // 用多张照片制造足够长的处理时间，确保取消请求命中 running 状态
+    const ids = [];
+    for (let i = 0; i < 30; i++) {
+      const up = await uploadJpeg(base, await makeNoiseJpeg(false), `rc-${i}.jpg`);
+      ids.push(up.added[0].id);
+    }
+
+    const r = await fetch(`${base}/api/photos/batch/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, pipeline: {}, mode: 'copy' }),
+    });
+    const jr = await r.json();
+    assert.equal(jr.ok, true);
+
+    // 立即取消（此时任务大概率仍在 running）
+    const cancel = await fetch(`${base}/api/jobs/${jr.jobId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const cj = await cancel.json();
+    assert.equal(cj.ok, true);
+    assert.equal(cj.status, 'canceled', '取消接口应立即返回 canceled 状态');
+
+    const j = await waitJob(base, jr.jobId);
+    assert.equal(j.status, 'canceled', '被取消任务的最终状态应为 canceled，而非 done');
+    assert.ok(j.done < j.total, '取消后未处理完的照片不应计入完成数');
   } finally {
     await closeServer(srv);
   }

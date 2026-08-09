@@ -439,10 +439,38 @@ async function buildMeta(filePath, id, original) {
 }
 
 /* ---------- 抹除元数据（无损优先） ---------- */
+// 从 JPEG 原始字节读取 EXIF 方向标记（IFD0 tag 0x0112）。
+// piexif.load 对损坏 EXIF 会抛异常，此时兜底分支用本函数尽力保留方向，避免竖拍照片侧躺。
+function readJpegOrientation(buf) {
+  const tiff = extractExifTiff(buf, '.jpg');
+  if (!tiff || tiff.length < 8) return 1;
+  try {
+    const isLE = tiff[0] === 0x49 && tiff[1] === 0x49; // 'II'
+    if (!isLE && !(tiff[0] === 0x4D && tiff[1] === 0x4D)) return 1;
+    const u16 = o => isLE ? tiff.readUInt16LE(o) : tiff.readUInt16BE(o);
+    const u32 = o => isLE ? tiff.readUInt32LE(o) : tiff.readUInt32BE(o);
+    if (u16(2) !== 42) return 1;
+    const ifd0 = u32(4);
+    if (ifd0 + 2 > tiff.length) return 1;
+    const count = u16(ifd0);
+    for (let i = 0; i < count; i++) {
+      const e = ifd0 + 2 + i * 12;
+      if (e + 12 > tiff.length) break;
+      if (u16(e) === 0x0112) {
+        const type = u16(e + 2);
+        if (type === 3) return u16(e + 8); // SHORT
+        if (type === 4) return u32(e + 8); // LONG
+      }
+    }
+  } catch { /* 解析失败按无方向处理 */ }
+  return 1;
+}
+
 async function stripMetadata(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.jpg' || ext === '.jpeg') {
-    const bin = fs.readFileSync(filePath).toString('binary');
+    const buf = fs.readFileSync(filePath);
+    const bin = buf.toString('binary');
     try {
       const obj = piexif.load(bin);
       const orientation = (obj['0th'] || {})[piexif.ImageIFD.Orientation] || 1;
@@ -457,7 +485,22 @@ async function stripMetadata(filePath) {
       fs.writeFileSync(filePath, Buffer.from(out, 'binary'));
       return;
     } catch {
-      fs.writeFileSync(filePath, Buffer.from(piexif.remove(bin), 'binary'));
+      // EXIF 损坏时 piexif.load 抛异常：尽力从原始字节读取方向标记并保留。
+      // 若损坏到连 piexif.remove 都解析不了 JPEG 结构，则回退到重编码路径
+      // （sharp 会烘焙方向后再去除元数据，同样避免侧躺）。
+      try {
+        const orientation = readJpegOrientation(buf);
+        let out = piexif.remove(bin);
+        if (orientation !== 1) {
+          out = piexif.insert(
+            piexif.dump({ '0th': { [piexif.ImageIFD.Orientation]: orientation } }),
+            out
+          );
+        }
+        fs.writeFileSync(filePath, Buffer.from(out, 'binary'));
+      } catch {
+        await fsp.writeFile(filePath, await sharp(filePath).rotate().jpeg({ quality: 90 }).toBuffer());
+      }
       return;
     }
   }
@@ -1538,12 +1581,16 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     });
   });
 
-  // 取消批量任务：置 canceled 标志，worker 不再取新任务（已完成的保留）
+  // 取消批量任务：置 canceled 标志（worker 不再取新任务），
+  // 并把任务状态同步为 canceled，避免收尾时被误判为 done
   app.post('/api/jobs/:id/cancel', (req, res) => {
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: '任务不存在' });
-    if (job.status === 'running') job.canceled = true;
-    try { persistJobs(); } catch { /* 落盘失败不阻断取消 */ }
+    if (job.status === 'running') {
+      job.canceled = true;
+      job.status = 'canceled';
+      try { persistJobs(); } catch { /* 落盘失败不阻断取消 */ }
+    }
     res.json({ ok: true, status: job.status });
   });
 
@@ -1700,5 +1747,6 @@ module.exports = {
   extractExifTiff,
   fixUploadName,
   sanitizeTags,
+  readJpegOrientation,
   DEFAULT_SETTINGS,
 };

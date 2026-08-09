@@ -515,6 +515,7 @@ const lightbox = $('#lightbox');
 /* v1.2 §3.2.4 灯箱缩放平移（1×–5×） */
 let lbZoom = 1, lbPanX = 0, lbPanY = 0;
 let lbPanDrag = null;
+let lbAppliedZoom = 1; // 上次实际应用（DOM transform）的缩放，用于 clamp 还原基础尺寸
 function applyLbZoom(animate = true){
   const el = $('#lbZoom');
   if (!el) return;
@@ -529,6 +530,7 @@ function applyLbZoom(animate = true){
   } else {
     el.style.transform = `translate(${lbPanX}px,${lbPanY}px) scale(${lbZoom})`;
   }
+  lbAppliedZoom = lbZoom;
   $('#lbZoomFit').hidden = lbZoom === 1;
   $('#lbFilmstrip').hidden = !(photos.length > 1) || cmpActive || lbZoom !== 1;
 }
@@ -537,13 +539,14 @@ function resetLbZoom(){
   lbZoom = 1; lbPanX = 0; lbPanY = 0;
   applyLbZoom();
 }
-// 限制灯箱平移范围：图片小于视口时禁止平移，否则不超过溢出量的一半
+// 限制灯箱平移范围：图片小于视口时禁止平移，否则不超过溢出量的一半。
+// 用「已应用 zoom」还原未缩放基础尺寸（DOM transform 可能尚未跟上 lbZoom，直接除 lbZoom 会算错边界）
 function clampLbPan(){
   if (!window.gsap) return;
   const zoom = $('#lbZoom');
   const vp = lightbox.getBoundingClientRect();
   const imgR = zoom.getBoundingClientRect();
-  const w = imgR.width / lbZoom, h = imgR.height / lbZoom;
+  const w = imgR.width / lbAppliedZoom, h = imgR.height / lbAppliedZoom;
   const maxX = Math.max(0, (w * lbZoom - vp.width) / 2);
   const maxY = Math.max(0, (h * lbZoom - vp.height) / 2);
   lbPanX = gsap.utils.clamp(-maxX, maxX, lbPanX);
@@ -812,9 +815,13 @@ function updateUndoRedo(){
   if (r) r.disabled = redoStack.length === 0;
 }
 
+// 草稿恢复竞态防护：openEditor 后用户一旦手动改动（任意 saveEditState），
+// 草稿响应到达时不再覆盖用户刚调好的参数（仅防跨照片的 lastEditorId 不够）
+let draftUserEdited = false;
 function saveEditState(){
   undoStack.push(JSON.parse(JSON.stringify(edit)));
   redoStack = [];
+  draftUserEdited = true; // 标记用户已手动改动（撤销/重做也走这里，视为用户介入）
   updateUndoRedo();
 }
 
@@ -860,6 +867,7 @@ function openEditor(p){
   edit = defaultEdit();
   undoStack = [];
   redoStack = [];
+  draftUserEdited = false; // 重置草稿恢复竞态防护
   clearTimeout(draftTimer); draftTimer = null; // 避免上一张照片的待保存草稿写入新照片
   // 画布缩放复位
   canvasZoom = 1; canvasPanX = 0; canvasPanY = 0;
@@ -895,6 +903,7 @@ function openEditor(p){
     try {
       const r = await api.get(`/api/photos/${p.id}/draft`);
       if (!r.ok || !r.draft || lastEditorId !== p.id) return;
+      if (draftUserEdited) return; // 用户已在草稿返回前手动调整过参数，不覆盖
       const d = r.draft, adj = d.adjust || {};
       edit = defaultEdit();
       for (const k of Object.keys(SLIDER_DEFAULTS)) if (adj[k] != null) edit[k] = +adj[k];
@@ -1000,6 +1009,7 @@ $$('.slider-row').forEach(row=>{
 });
 $('#grayscale').addEventListener('change',()=>{ saveEditState(); edit.grayscale = $('#grayscale').checked; applyFilter(); scheduleDraftSave(); });
 $('#resetAdjust').onclick = ()=>{
+  saveEditState(); // 重置前入栈，Ctrl+Z 可回到重置前的参数
   edit = defaultEdit();
   resetSliders();
   if(current){ edit.resize = { width: current.width, height: current.height }; $('#reW').value = current.width; $('#reH').value = current.height; }
@@ -1145,19 +1155,23 @@ $$('#cropRatios .chip').forEach(c=>c.onclick=()=>{
   initCropBox(true); // v1.2 §3.4.5 比例切换保持框中心
 });
 
+// 初始化/重新定位裁剪框。cropBox 是 canvasZoom 的子元素，其 left/top/width/height
+// 在「canvasZoom 局部（未缩放）坐标空间」内解释；因此必须用 offset*（布局值，
+// 不受祖先 transform 影响）而非 getBoundingClientRect（客户区，已被缩放），
+// 否则画布缩放 ≠1× 时裁剪框按缩放倍率放大错位。
 function initCropBox(keepCenter){
-  const r = editImg.getBoundingClientRect();
-  const stage = $('#canvasStage').getBoundingClientRect();
-  let w = r.width*0.7, h = r.height*0.7;
+  const iw = editImg.offsetWidth, ih = editImg.offsetHeight;
+  const il = editImg.offsetLeft, it = editImg.offsetTop;
+  let w = iw*0.7, h = ih*0.7;
   if(cropRatio!=='free'){ const ratio=parseFloat(cropRatio); if(w/h>ratio) w=h*ratio; else h=w/ratio; }
   let cx, cy;
   if(keepCenter && cropBox.style.width){
-    const br = cropBox.getBoundingClientRect();
-    cx = (br.left - stage.left) + br.width/2;
-    cy = (br.top - stage.top) + br.height/2;
+    // 保持当前裁剪框中心（局部坐标）
+    cx = parseFloat(cropBox.style.left) + cropBox.offsetWidth/2;
+    cy = parseFloat(cropBox.style.top) + cropBox.offsetHeight/2;
   } else {
-    cx = (r.left-stage.left)+r.width/2;
-    cy = (r.top-stage.top)+r.height/2;
+    cx = il + iw/2;
+    cy = it + ih/2;
   }
   const left = cx - w/2;
   const top = cy - h/2;
@@ -1176,7 +1190,9 @@ cropBox.addEventListener('pointerdown', e=>{
 });
 cropBox.addEventListener('pointermove', e=>{
   if(!cropDrag) return;
-  const dx=e.clientX-cropDrag.sx, dy=e.clientY-cropDrag.sy;
+  // 客户区像素增量换算到 canvasZoom 局部坐标（除以缩放倍率）
+  const z = Math.max(canvasZoom, 0.25);
+  const dx=(e.clientX-cropDrag.sx)/z, dy=(e.clientY-cropDrag.sy)/z;
   let {l,t,w,h,handle}=cropDrag;
   if(handle==='move'){ l+=dx; t+=dy; }
   else{
@@ -1186,14 +1202,13 @@ cropBox.addEventListener('pointermove', e=>{
     if(handle.includes('t')){ h=cropDrag.h-dy; t=cropDrag.t+dy; }
     if(cropRatio!=='free'){ const ratio=parseFloat(cropRatio); h=w/ratio; }
   }
-  w=Math.max(30,w); h=Math.max(30,h);
-  // v1.2 §3.4.5 贴边/中心线吸附（≤6px）
+  w=Math.max(30,z); h=Math.max(30,z);
+  // v1.2 §3.4.5 贴边/中心线吸附（≤6px，局部坐标）
   if(window.gsap){
-    const imgR = editImg.getBoundingClientRect();
-    const stageR = $('#canvasStage').getBoundingClientRect();
-    const boxL = imgR.left - stageR.left, boxT = imgR.top - stageR.top;
-    const candsL = [boxL, boxL + imgR.width/2 - w/2, boxL + imgR.width - w];
-    const candsT = [boxT, boxT + imgR.height/2 - h/2, boxT + imgR.height - h];
+    const boxL = editImg.offsetLeft, boxT = editImg.offsetTop;
+    const iw = editImg.offsetWidth, ih = editImg.offsetHeight;
+    const candsL = [boxL, boxL + iw/2 - w/2, boxL + iw - w];
+    const candsT = [boxT, boxT + ih/2 - h/2, boxT + ih - h];
     let bestL = l, bestT = t;
     for(const c of candsL) if(Math.abs(c - l) <= 6){ bestL = c; break; }
     for(const c of candsT) if(Math.abs(c - t) <= 6){ bestT = c; break; }
@@ -1266,6 +1281,7 @@ $('#applyCrop').onclick = ()=>{
   const width = clamp(Math.round(rect.w), current.width - left);
   const height = clamp(Math.round(rect.h), current.height - top);
   if(width < 1 || height < 1){ toast('裁剪区域过小', true); return; }
+  saveEditState(); // 应用裁剪前入栈，Ctrl+Z 可撤销裁剪
   edit.crop = { left, top, width, height };
   cropping=false; cropOverlay.hidden=true; $('#cropRatios').hidden=true; $('#applyCrop').hidden=true;
   $('#cropToggle').textContent='✂ 开启裁剪';
@@ -1314,12 +1330,14 @@ const canvasStageEl = $('#canvasStage');
 const canvasZoomEl = $('#canvasZoom');
 let canvasZoom = 1, canvasPanX = 0, canvasPanY = 0;
 let canvasPanDrag = null;
+let canvasAppliedZoom = 1; // 上次实际应用（DOM transform）的缩放，用于 clamp 还原基础尺寸
 
-// 限制编辑器画布平移范围（图片小于视口时禁止平移）
+// 限制编辑器画布平移范围（图片小于视口时禁止平移）。
+// 用「已应用 zoom」还原未缩放基础尺寸，避免 DOM transform 尚未跟上 canvasZoom 时边界算错
 function clampCanvasPan(){
   const stageR = canvasStageEl.getBoundingClientRect();
   const imgR = editImg.getBoundingClientRect();
-  const imgW = imgR.width / canvasZoom, imgH = imgR.height / canvasZoom;
+  const imgW = imgR.width / canvasAppliedZoom, imgH = imgR.height / canvasAppliedZoom;
   const maxX = Math.max(0, (imgW * canvasZoom - stageR.width) / 2);
   const maxY = Math.max(0, (imgH * canvasZoom - stageR.height) / 2);
   const c = window.gsap ? gsap.utils.clamp(-maxX, maxX, canvasPanX) : Math.max(-maxX, Math.min(maxX, canvasPanX));
@@ -1341,6 +1359,7 @@ function applyCanvasZoom(animate = true){
   } else {
     canvasZoomEl.style.transform = `translate(${canvasPanX}px,${canvasPanY}px) scale(${canvasZoom})`;
   }
+  canvasAppliedZoom = canvasZoom;
   $('#canvasZoomPct').textContent = Math.round(canvasZoom * 100) + '%';
   $('#canvasZoomFit').hidden = canvasZoom === 1 && canvasPanX === 0 && canvasPanY === 0;
   if (cropping) initCropBox();
@@ -2085,13 +2104,15 @@ function openSlideshow(){
   slShow();
 }
 // 显示第 slIndex 张：交叉淡入换源 + Ken Burns + 进度条
+// 进度条在换图时立即启动（不等待 crossfade 淡出完成），时长=播放间隔，
+// 否则每次切张进度条晚 0.18s 启动，永远走不满
 function slShow(){
   const p = photos[slIndex]; if(!p) return;
   const img = $('#slImg');
+  slStartProgress();
   const show = ()=>{
     $('#slInfo').textContent = `${slIndex+1}/${photos.length} · ${p.name} · ${p.width}×${p.height}`;
     slKenBurns(img, slIndex);
-    slStartProgress();
   };
   if (window.UIAnim) window.UIAnim.crossfade(img, '/files/'+p.file+'?v='+p.time, show);
   else {
@@ -2127,6 +2148,12 @@ function slStopProgress(){
   gsap.killTweensOf($('#slProgress'));
   $('#slProgress').style.transform = 'scaleX(0)';
 }
+// 启动/重启自动切张定时器（播放中手动切换也调用它，重置相位避免连跳两张）
+function slRestartTimer(){
+  const interval = (settings.slideshowInterval || 3) * 1000;
+  if (slTimer) clearInterval(slTimer);
+  slTimer = setInterval(()=>{ slIndex=(slIndex+1)%photos.length; slShow(); }, interval);
+}
 // 播放/暂停幻灯片切换（空格键）：播放用 setInterval 定时切张
 function slPlay(){
   if(slTimer){
@@ -2135,12 +2162,11 @@ function slPlay(){
     return;
   }
   $('#slPlay').textContent='⏸';
-  const interval = (settings.slideshowInterval || 3) * 1000;
-  slTimer = setInterval(()=>{ slIndex=(slIndex+1)%photos.length; slShow(); }, interval);
+  slRestartTimer();
   slStartProgress(); // 恢复播放时进度从当前张重新开始，保持与定时器同步
 }
-$('#slPrev').onclick = ()=>{ slIndex=(slIndex-1+photos.length)%photos.length; slShow(); };
-$('#slNext').onclick = ()=>{ slIndex=(slIndex+1)%photos.length; slShow(); };
+$('#slPrev').onclick = ()=>{ slIndex=(slIndex-1+photos.length)%photos.length; slShow(); slRestartTimer(); };
+$('#slNext').onclick = ()=>{ slIndex=(slIndex+1)%photos.length; slShow(); slRestartTimer(); };
 $('#slPlay').onclick = slPlay;
 $('#slExit').onclick = ()=>{ $('#slideshow').hidden=true; if(slTimer){clearInterval(slTimer);slTimer=null;} slStopProgress(); };
 
@@ -2356,9 +2382,10 @@ function rateTarget(stars){
 }
 document.addEventListener('keydown', e=>{
   const k = e.key;
-  // 快捷键浮层：Esc / ? 关闭（优先于输入框守卫）
-  if (!$('#shortcutModal').hidden && (k === 'Escape' || k === '?')) { closeShortcutModal(); return; }
   const tgt = e.target;
+  const inShortcutSearch = !$('#shortcutModal').hidden && tgt === $('#shortcutSearch');
+  // 快捷键浮层：Esc / ? 关闭（但焦点在搜索框内时放行，让用户能搜 "?" 这个键）
+  if (!$('#shortcutModal').hidden && !inShortcutSearch && (k === 'Escape' || k === '?')) { closeShortcutModal(); return; }
   if(tgt && typeof tgt.matches === 'function' && tgt.matches('input,textarea,select')) return;
   if(k === '?'){ e.preventDefault(); openShortcutModal(); return; }
   const editorActive = document.querySelector('.view[data-view="editor"].active');
