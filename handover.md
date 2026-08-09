@@ -22,7 +22,7 @@
 | `electron-launch.cjs` | 启动器（spawn Electron，清理 `ELECTRON_RUN_AS_NODE` 污染） |
 | `public/` | 前端：`index.html` / `style.css`（token 化设计系统 + 深色模式）/ `app.js`（全部前端逻辑）/ `ui-anim.js`（GSAP 动画层，挂 `window.UIAnim`）/ `vendor/gsap/`（含 `FlipPlugin.min.js`，v1.2 从 gsap npm 包复制） |
 | `scripts/ui-smoke.cjs` | UI 冒烟测试：真实 Electron 加载前端，覆盖 v1.1.0 选片工作流交互、v1.2 验收用例、EXIF 方向防重叠回归（`MASONRY`）与 v1.2.1 损坏 WebP 写 EXIF 回归（`WEBP400`），捕获渲染进程错误 |
-| `test/server.test.cjs` | node:test 回归测试（当前 44 个，全部通过） |
+| `test/server.test.cjs` | node:test 回归测试（当前 49 个，全部通过） |
 | `docs/ui-redesign.md` | v1.2 UI/UX 改版设计规格（评审通过后已实现） |
 | `build/installer/` | Inno Setup 安装脚本（仓库源文件，勿删） |
 | `ROADMAP.md` / `CHANGELOG.md` / `README.md` / `README_en.md` / `AGENTS.md` / `handover.md` | 规划 / 版本日志 / 文档 / 仓库规范 / 本交接文档 |
@@ -125,8 +125,8 @@
 
 ## 5. 常见操作
 
-- **跑测试**：`npm test`（44 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归、EXIF 方向照片入库宽高回归、v1.2.1 令牌/写锁/任务落盘/WebP 400 回归）
-- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE`、`SHORTCUTS`、`CONFIRM`、`LB-ZOOM`、`UPLOAD-OVERLAY`、`FLIP-GRID`、`DRAFT`、`MASONRY`（EXIF 方向照片防重叠）、`WEBP400`（损坏 WebP 写 EXIF 友好提示）等标记与 `CONSOLE-ERRORS []`；完整标记清单见 `AGENTS.md` 测试节——成功标记：`UI-STATE`、`ANIM`、`MODAL`、`KEYDOWN`、`LAYOUT`、`NAV-EXIF`、`BA-COMPARE`、`LB-COMPARE`、`BATCH-UI`、`BATCH-DONE`、`BATCH-AFTER`、`TOGGLE-H`、`DARK-MODE`、`SHORTCUTS`、`CONFIRM`、`LB-ZOOM`、`UPLOAD-OVERLAY`、`DROP-ONCE`、`FLIP-GRID`、`ALBUM-BATCH`、`DRAFT`、`MASONRY`、`WEBP400`；失败标记：`SMOKE-REJECTION`、`SMOKE-TIMEOUT`、`SMOKE-UNCAUGHT`。脚本已加主进程未捕获异常兜底与 90s 看门狗；**运行前需清掉环境变量 `ELECTRON_RUN_AS_NODE`**（部分 shell 预设该变量会让 Electron 以 Node 模式启动、`app` 为 undefined）
+- **跑测试**：`npm test`（49 个，含 PNG/WebP EXIF 往返、中文文件名/EXIF、批量处理/路由回归、hideReject、autoAdvance、信息页导航加载回归、v1.2 settings/adjust/草稿/cover/dataDir 回归、EXIF 方向照片入库宽高回归、v1.2.1 令牌/写锁/任务落盘/WebP 400 回归、v1.3 标签净化/单张与批量标签/标签云/search tag 筛选）
+- **UI 冒烟**：`npx electron scripts/ui-smoke.cjs`（期望 v1.1 全部用例 + `DARK-MODE`、`SHORTCUTS`、`CONFIRM`、`LB-ZOOM`、`UPLOAD-OVERLAY`、`FLIP-GRID`、`DRAFT`、`MASONRY`（EXIF 方向照片防重叠）、`WEBP400`（损坏 WebP 写 EXIF 友好提示）等标记与 `CONSOLE-ERRORS []`；完整标记清单见 `AGENTS.md` 测试节——成功标记：`UI-STATE`、`ANIM`、`MODAL`、`KEYDOWN`、`LAYOUT`、`NAV-EXIF`、`BA-COMPARE`、`LB-COMPARE`、`BATCH-UI`、`BATCH-DONE`、`BATCH-AFTER`、`TOGGLE-H`、`DARK-MODE`、`SHORTCUTS`、`CONFIRM`、`LB-ZOOM`、`UPLOAD-OVERLAY`、`DROP-ONCE`、`FLIP-GRID`、`ALBUM-BATCH`、`DRAFT`、`MASONRY`、`WEBP400`、`TAG`；失败标记：`SMOKE-REJECTION`、`SMOKE-TIMEOUT`、`SMOKE-UNCAUGHT`。脚本已加主进程未捕获异常兜底与 90s 看门狗；**运行前需清掉环境变量 `ELECTRON_RUN_AS_NODE`**（部分 shell 预设该变量会让 Electron 以 Node 模式启动、`app` 为 undefined）
 - **启动开发**：`npm start` / `npm run electron`
 - **构建**：`npm run build:win` → `release/`（NSIS + portable）
 - **发版流程**（每次一致）：改版本号（package.json + package-lock.json + server-app.cjs 默认值 + index.html 关于页）→ CHANGELOG 加条目（中文+English+Release Assets+Notes）→ `release:` 提交 → push main → `git tag -a vX.Y.Z` + push tag → `gh release create vX.Y.Z --title "Luma Studio vX.Y.Z 桌面版" --notes-file ... --latest`，产物按 `Luma Studio Setup X.Y.Z.exe` / `Luma Studio X.Y.Z.exe` 命名上传

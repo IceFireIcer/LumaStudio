@@ -154,7 +154,7 @@ npm run electron
 │   ├── ui-anim.js          # GSAP 动画层（window.UIAnim）
 │   └── vendor/gsap/        # 本地 GSAP（含 FlipPlugin）
 ├── scripts/ui-smoke.cjs    # UI 冒烟测试（真实 Electron）
-├── test/server.test.cjs    # 回归测试（node:test，44 个）
+├── test/server.test.cjs    # 回归测试（node:test，49 个）
 ├── docs/                   # 设计规格（ui-redesign.md）
 ├── build/installer/        # Inno Setup 安装脚本
 ├── storage/                # 运行时数据（userData）
