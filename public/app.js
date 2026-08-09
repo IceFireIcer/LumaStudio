@@ -1,4 +1,5 @@
 /* ============ 工具 ============ */
+// DOM 选择器简写：$ = querySelector（首个匹配），$$ = querySelectorAll（数组化）
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // v1.2.1 本地访问令牌：Electron 场景经 preload 获取，写请求自动携带 X-Luma-Token 头；
@@ -20,7 +21,9 @@ async function initAuthToken(){
   } catch (e) { console.error('获取访问令牌失败', e); }
   return '';
 }
+// 字节数格式化为人类可读（B / KB / MB）
 const fmtSize = n => n < 1024 ? n+' B' : n < 1048576 ? (n/1024).toFixed(1)+' KB' : (n/1048576).toFixed(2)+' MB';
+// HTML 转义：防止照片名等用户数据注入（XSS 防护）
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // 触发浏览器下载某张照片的原图文件
 function downloadPhoto(p){
@@ -47,6 +50,7 @@ function toast(msg, opts){
   t.className = 'toast show' + (o.err ? ' err' : '');
   clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.className='toast', 2400);
 }
+// 显示/隐藏全屏加载遮罩（后台任务、导出等耗时操作）
 function showLoading(){ $('#loadingOverlay').classList.add('show'); }
 function hideLoading(){ $('#loadingOverlay').classList.remove('show'); }
 
@@ -99,6 +103,8 @@ let activeTag = '';       // 标签筛选（标签体系，第二组织维度）
 let slTimer = null; // 幻灯片定时器
 
 /* ============ 视图切换 ============ */
+// 切换到指定视图（library/editor/exif/settings/about/logs/albums），
+// 处理侧边栏高亮、页面过渡动画、各视图的按需加载与空状态显隐
 function switchView(name){
   $$('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
   const oldEl = document.querySelector('.view.active');
@@ -148,6 +154,7 @@ $$('[data-goto]').forEach(b=>b.onclick=()=>switchView(b.dataset.goto));
 const grid = $('#grid'), emptyState = $('#emptyState');
 let lastRenderedIds = new Set(); // 上次渲染的卡片 id（用于 Flip 区分新卡片）
 
+// 从 /api/search 加载照片列表：收集搜索/排序/筛选条件为查询参数并渲染网格
 async function loadPhotos(){
   const q = $('#searchInput').value.trim();
   const sort = $('#sortSelect').value;
@@ -167,6 +174,7 @@ async function loadPhotos(){
   updateBatchBar();
   $('#storageMini').textContent = `${photos.length} 张照片`;
 }
+// 加载收藏夹列表并渲染
 async function loadAlbums(){
   albums = await api.get('/api/albums');
   renderAlbums();
@@ -206,6 +214,7 @@ function cardRatio(card){
   return parseFloat(card.dataset.ratio || '1') || 1;
 }
 
+// 瀑布流排版：短列优先把卡片分配到最矮列（DOM 顺序 = 视觉顺序），并设置容器高度
 function layoutMasonry(root, cards){
   masonryRoot = root;
   masonryCards = cards;
@@ -248,6 +257,7 @@ window.addEventListener('resize', ()=>{
   masonryTimer = setTimeout(()=>{ if(masonryRoot) layoutMasonry(masonryRoot, masonryCards); }, 150);
 });
 
+// 渲染主相册网格：空状态/计数/卡片构建 + 瀑布流排版 + Flip 过渡 + 新卡片入场动画
 function renderGrid(){
   // v1.2 §3.1.3 网格 Flip：重绘前捕获旧卡片状态
   const flipState = (window.Flip && window.gsap) ? Flip.getState(grid.querySelectorAll('.card')) : null;
@@ -363,6 +373,7 @@ function createCard(p, i, opts = {}){
   return card;
 }
 
+// 删除单张照片：确认后播放移除动画，调用删除 API 并刷新网格
 async function delPhoto(p, card){
   if (!(await showConfirm('删除照片', `确定删除「${p.name}」?此操作不可恢复。`, { danger: true, confirmText: '删除' }))) return;
   card.classList.add('removing');
@@ -466,6 +477,7 @@ async function uploadFiles(list){
   }
   return addedIds;
 }
+// 上传单张照片（XMLHttpRequest 以便上报进度）；成功返回新照片 id，失败返回 null
 function uploadOne(f, bar, i, total){
   return new Promise(resolve=>{
     const fd = new FormData();
@@ -520,10 +532,12 @@ function applyLbZoom(animate = true){
   $('#lbZoomFit').hidden = lbZoom === 1;
   $('#lbFilmstrip').hidden = !(photos.length > 1) || cmpActive || lbZoom !== 1;
 }
+// 复位灯箱缩放与平移
 function resetLbZoom(){
   lbZoom = 1; lbPanX = 0; lbPanY = 0;
   applyLbZoom();
 }
+// 限制灯箱平移范围：图片小于视口时禁止平移，否则不超过溢出量的一半
 function clampLbPan(){
   if (!window.gsap) return;
   const zoom = $('#lbZoom');
@@ -535,6 +549,7 @@ function clampLbPan(){
   lbPanX = gsap.utils.clamp(-maxX, maxX, lbPanX);
   lbPanY = gsap.utils.clamp(-maxY, maxY, lbPanY);
 }
+// 以鼠标/触摸点为锚点缩放灯箱（保持指针下的内容点不动）
 function lbZoomAt(factor, clientX, clientY){
   const r = lightbox.getBoundingClientRect();
   const cx = r.width / 2, cy = r.height / 2;
@@ -549,6 +564,7 @@ function lbZoomAt(factor, clientX, clientY){
   clampLbPan();
   applyLbZoom();
 }
+// 以灯箱中心为锚点缩放（工具栏 +/- 按钮、双击放大用）
 function lbZoomCenter(factor){
   const r = lightbox.getBoundingClientRect();
   lbZoomAt(factor, r.left + r.width / 2, r.top + r.height / 2);
@@ -604,6 +620,7 @@ function renderLbFilmstrip(){
 
 /* v1.2 §3.2.3 EXIF 摘要条（按需请求 + 内存缓存） */
 const lbExifCache = new Map();
+// 把 EXIF 摘要对象格式化为灯箱顶部摘要条文本（光圈/快门/ISO/焦距/时间）
 function formatLbExif(ex){
   const parts = [];
   if (ex.FNumber != null && ex.FNumber !== '') parts.push('f/' + ex.FNumber);
@@ -623,6 +640,7 @@ function formatLbExif(ex){
   }
   return parts.join(' · ');
 }
+// 按需加载灯箱 EXIF 摘要（内存缓存，避免反复请求）
 async function loadLbExif(p){
   const el = $('#lbExif');
   if (!el) return;
@@ -648,6 +666,7 @@ $('#lbExif').onclick = ()=>{
   if (photos[lbIndex]) { closeLightbox(); openExif(photos[lbIndex]); }
 };
 
+// 打开灯箱定位到第 i 张：复位缩放、同步换源并播放开合动画
 function openLightbox(i){
   lbIndex = i;
   resetLbZoom();
@@ -655,6 +674,7 @@ function openLightbox(i){
   if (window.UIAnim) window.UIAnim.lightbox(lightbox, $('#lbImg'), true);
   else lightbox.classList.add('open');
 }
+// 关闭灯箱：先退出对比模式，复位缩放并播收起动画
 function closeLightbox(){
   if(cmpActive) closeCompare();
   resetLbZoom();
@@ -681,6 +701,7 @@ function showLbPhoto(dir){
     show();
   }
 }
+// 灯箱前后导航（d = ±1，循环）
 function navLb(d){
   if(!photos.length) return;
   lbIndex = (lbIndex+d+photos.length)%photos.length;
@@ -707,6 +728,7 @@ let cmpActive = false;   // 对比模式
 let cmpIdx = -1;         // 左图索引；右图 = cmpIdx + 1
 let cmpSide = 1;         // 标记目标：0 左 / 1 右
 
+// 进入并排对比选片模式：隐藏单图与导航按钮，显示左右对比图（需 ≥2 张）
 function openCompare(){
   if(cmpActive || photos.length < 2) return;
   resetLbZoom(); // v1.2 §3.2.4 进入对比前若缩放中先复位
@@ -722,6 +744,7 @@ function openCompare(){
   $('#lbFilmstrip').hidden = true; // 对比模式隐藏胶片条
   updateCompare();
 }
+// 退出对比选片模式：恢复单图灯箱与导航按钮
 function closeCompare(){
   if(!cmpActive) return;
   cmpActive = false;
@@ -733,6 +756,7 @@ function closeCompare(){
   $('#lbCompare').textContent = '对比';
   $('#lbFilmstrip').hidden = !(photos.length > 1);
 }
+// 刷新对比画面：左右图 src/标题 + 计数器 + 标记目标高亮
 function updateCompare(){
   if(!cmpActive || photos.length < 2) return;
   cmpIdx = Math.max(0, Math.min(cmpIdx, photos.length - 2));
@@ -746,6 +770,7 @@ function updateCompare(){
   $('#lbIndex').textContent = `${cmpIdx + 1} / ${photos.length}`;
   updateCompareSide();
 }
+// 更新对比模式标记目标高亮与提示（Tab 切换 0 左 / 1 右）
 function updateCompareSide(){
   [...$('#lbCompareWrap').querySelectorAll('.lb-cmp')]
     .forEach((f, i) => f.classList.toggle('target', i === cmpSide));
@@ -811,6 +836,7 @@ function redo(){
   scheduleDraftSave();
 }
 
+// 将 edit 状态同步回 UI（撤销/重做/草稿恢复后调用）
 function applyEditState(){
   for (const k of Object.keys(SLIDER_DEFAULTS)) $('#'+k).value = edit[k] ?? SLIDER_DEFAULTS[k];
   $('#grayscale').checked = edit.grayscale;
@@ -889,11 +915,13 @@ function openEditor(p){
   })();
 }
 
+// 全部滑块恢复默认值（不写 edit，仅重置 UI 显示）
 function resetSliders(){
   for (const [k, v] of Object.entries(SLIDER_DEFAULTS)) $('#'+k).value = v;
   $('#grayscale').checked=false;
   updateSliderLabels();
 }
+// 同步滑块右侧数值标签（% / ° / 原始值）
 function updateSliderLabels(){
   $('#vBrightness').textContent=$('#brightness').value+'%';
   $('#vContrast').textContent=$('#contrast').value+'%';
@@ -916,6 +944,7 @@ function updateModifiedDots(){
   });
 }
 // 双击滑块标签/值 → 恢复默认（v1.2 §3.4.1）
+// 双击恢复单个滑块默认值；已在默认值返回 false（不触发保存）
 function resetOneSlider(id){
   const d = SLIDER_DEFAULTS[id];
   if (d == null) return false;
@@ -1069,6 +1098,7 @@ function scheduleDraftSave(){
   clearTimeout(draftTimer);
   draftTimer = setTimeout(saveDraft, 800);
 }
+// 从 UI 收集调色参数（0-200 百分比换算为 0-1 系数等，供后端管线使用）
 function buildAdjustFromUI(){
   return {
     brightness:$('#brightness').value/100,
@@ -1084,6 +1114,7 @@ function buildAdjustFromUI(){
     grain:+$('#grain').value,
   };
 }
+// 保存当前编辑参数为草稿（POST /draft），导出成功后由调用方清除
 async function saveDraft(){
   if (!current) return;
   const body = {
@@ -1173,6 +1204,7 @@ cropBox.addEventListener('pointermove', e=>{
 cropBox.addEventListener('pointerup',()=>cropDrag=null);
 
 // v1.2 §3.4.5 裁剪框键盘微调（方向键平移 1px、Shift 10px；[ ] 缩放框）
+// 平移裁剪框并限制在图片范围内
 function moveCropBox(dx, dy){
   const rect = canvasStageEl.getBoundingClientRect();
   const imgR = editImg.getBoundingClientRect();
@@ -1184,6 +1216,7 @@ function moveCropBox(dx, dy){
   cropBox.style.left = l + 'px';
   cropBox.style.top = t + 'px';
 }
+// 以裁剪框中心为锚点缩放裁剪框（保持中心不动，限最小 30px）
 function resizeCropBoxBy(dx){
   const w = cropBox.offsetWidth + dx;
   const h = cropRatio !== 'free' ? w / parseFloat(cropRatio) : cropBox.offsetHeight + dx;
@@ -1199,6 +1232,7 @@ function resizeCropBoxBy(dx){
 }
 
 // 显示画面 = rotate(flips(裁剪源))；把显示空间矩形反向换算回源空间（自动校正方向后的像素坐标）
+// 把「旋转后显示空间」的裁剪框矩形反向换算回「自动校正方向后的源空间」像素坐标
 function unrotateRect(rect, angle, W, H){
   switch(angle){
     case 90:  return { x: rect.y, y: H - rect.w - rect.x, w: rect.h, h: rect.w };
@@ -1246,6 +1280,7 @@ let baDir = 'h'; // h=左右分屏  v=上下分屏（v1.2 §3.4.6）
 let baDragStart = null;
 
 $('#baToggle').onclick = toggleBA;
+// 切换前后对比（原图 vs 编辑后）模式，控制分界线/原图层的显隐
 function toggleBA(){
   if(!current) return;
   baActive = !baActive;
@@ -1280,6 +1315,7 @@ const canvasZoomEl = $('#canvasZoom');
 let canvasZoom = 1, canvasPanX = 0, canvasPanY = 0;
 let canvasPanDrag = null;
 
+// 限制编辑器画布平移范围（图片小于视口时禁止平移）
 function clampCanvasPan(){
   const stageR = canvasStageEl.getBoundingClientRect();
   const imgR = editImg.getBoundingClientRect();
@@ -1291,6 +1327,7 @@ function clampCanvasPan(){
   const c2 = window.gsap ? gsap.utils.clamp(-maxY, maxY, canvasPanY) : Math.max(-maxY, Math.min(maxY, canvasPanY));
   canvasPanY = c2;
 }
+// 应用编辑器画布缩放/平移（transform 挂 .canvas-zoom），更新百分比与"适应"按钮
 function applyCanvasZoom(animate = true){
   if (!canvasZoomEl) return;
   if (window.gsap) {
@@ -1308,10 +1345,12 @@ function applyCanvasZoom(animate = true){
   $('#canvasZoomFit').hidden = canvasZoom === 1 && canvasPanX === 0 && canvasPanY === 0;
   if (cropping) initCropBox();
 }
+// 复位编辑器画布缩放与平移
 function resetCanvasZoom(){
   canvasZoom = 1; canvasPanX = 0; canvasPanY = 0;
   applyCanvasZoom();
 }
+// 以鼠标点为锚点缩放编辑器画布（保持指针下内容不动）
 function canvasZoomAt(factor, clientX, clientY){
   const rect = canvasStageEl.getBoundingClientRect();
   const cx = rect.width / 2, cy = rect.height / 2;
@@ -1327,6 +1366,7 @@ function canvasZoomAt(factor, clientX, clientY){
   clampCanvasPan();
   applyCanvasZoom();
 }
+// 以画布中心为锚点缩放（工具栏 +/- 按钮用）
 function canvasZoomCenter(factor){
   const r = canvasStageEl.getBoundingClientRect();
   canvasZoomAt(factor, r.left + r.width / 2, r.top + r.height / 2);
@@ -1451,6 +1491,7 @@ $('#editName').ondblclick = async ()=>{
 };
 
 /* ============ EXIF ============ */
+// 打开信息页：加载照片 EXIF 分组展示、标签 chips 与可编辑字段
 async function openExif(p){
   current = p;
   lastExifId = p.id;
@@ -1483,6 +1524,7 @@ function renderExifTags(p){
     `<span class="tag-chip">${esc(t)}<button data-tag="${esc(t)}" title="移除标签">✕</button></span>`
   ).join('');
 }
+// 保存照片标签（全量替换），成功后刷新 chips 与工具栏标签筛选
 async function saveExifTags(newTags){
   if(!current) return;
   const r = await api.post(`/api/photos/${current.id}/tags`, { tags: newTags });
@@ -1502,6 +1544,7 @@ $('#exifTagChips').addEventListener('click', e=>{
 });
 $('#exifTagAdd').onclick = ()=>submitExifTags();
 $('#exifTagInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitExifTags(); } });
+// 提交标签输入框内容：按分隔符拆分后追加到现有标签并去重
 function submitExifTags(){
   if(!current) return;
   const raw = $('#exifTagInput').value.trim();
@@ -1512,6 +1555,7 @@ function submitExifTags(){
   saveExifTags([...new Set([...(current.tags || []), ...newTags])]);
 }
 // v1.2 §3.5.1 分组展示；§3.5.3 GPS 十进制度 + 度分秒 + 地图链接
+// 十进制度数格式化为 度°分′秒″ + 方向（N/S/E/W）
 function dmsFormat(v, isLat){
   const n = Number(v);
   if (!Number.isFinite(n)) return '';
@@ -1522,6 +1566,7 @@ function dmsFormat(v, isLat){
   const sec = Math.round(((a - deg) * 60 - min) * 60 * 100) / 100;
   return `${deg}°${min}′${sec}″${dir}`;
 }
+// 渲染 EXIF 分组 HTML（相机/拍摄参数/时间/文件/GPS），值可点击复制
 function renderExifGroups(p, ex){
   const rows = (map, fmt) => {
     const out = [];
@@ -1601,6 +1646,7 @@ $('#exifList').addEventListener('click', async e=>{
   } : null;
   toast(`已复制：${txt.length > 40 ? txt.slice(0, 40) + '…' : txt}`, action ? { action } : undefined);
 });
+// EXIF 时间格式化为 YYYY:MM:DD HH:mm:ss（可编辑字段的输入格式）
 function formatExifDate(d){
   if(d instanceof Date){
     const p=n=>String(n).padStart(2,'0');
@@ -1635,6 +1681,7 @@ $('#dlFromExif').onclick = ()=>{ if(current) downloadPhoto(current); };
 /* ============ 设置 ============ */
 const PRESET_COLORS = ['#0071e3','#ff375f','#34c759','#ff9500','#af52de','#5856d6'];
 // v1.2 §1.6：深色模式应用（即时生效，无需重启）
+// 应用主题（深色/浅色）与减弱动效设置，即时生效无需重启
 function applyTheme(theme){
   const dark = theme === 'dark';
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
@@ -1642,6 +1689,7 @@ function applyTheme(theme){
   const rm = $('#setReduceMotion'); if (rm) rm.value = settings.reduceMotion || 'system';
   if (window.UIAnim) window.UIAnim.setReduceMode(settings.reduceMotion || 'system');
 }
+// 加载设置到设置页控件并应用主题/主题色
 async function loadSettings(){
   settings = await api.get('/api/settings');
   $('#setFormat').value = settings.defaultFormat;
@@ -1661,6 +1709,7 @@ async function loadSettings(){
     sw.appendChild(d);
   });
 }
+// 应用主题色：写入 CSS 变量与 data-accent 属性（预置色板有专用 accent-soft）
 function applyAccent(c){ document.documentElement.style.setProperty('--accent', c); document.documentElement.dataset.accent = c; }
 $('#setQuality').addEventListener('input',()=>$('#vSetQuality').textContent=$('#setQuality').value+'%');
 $('#setAccent').addEventListener('input',e=>applyAccent(e.target.value));
@@ -1687,6 +1736,7 @@ $('#saveSettings').onclick = async ()=>{
   const r = await api.post('/api/settings', body);
   if(r.ok){ settings=r.settings; applyAccent(settings.accent); applyTheme(settings.theme); startLogsAutoRefresh(); toast('设置已保存 ✓'); }
 };
+// 加载存储统计到设置页：照片数/占用/数据目录 + 打开按钮 + 本地令牌展示/复制/重新生成
 async function loadStats(){
   const s = await api.get('/api/stats');
   $('#stCount').textContent = s.count+' 张';
@@ -1741,6 +1791,7 @@ async function loadStats(){
 }
 
 /* ============ 关于页 ============ */
+// 从 /api/info 加载版本/运行信息到关于页
 async function loadAbout(){
   try{
     const info = await api.get('/api/info');
@@ -1755,12 +1806,14 @@ async function loadAbout(){
 }
 
 /* ============ 选片/多选 ============ */
+// 切换照片选中状态并刷新批量操作条
 function toggleSelect(id, card){
   if(selected.has(id)){ selected.delete(id); if(card) card.classList.remove('selected'); }
   else { selected.add(id); if(card) card.classList.add('selected'); }
   if(card) card.querySelector('.sel-check').textContent = selected.has(id) ? '✓' : '';
   updateBatchBar();
 }
+// 刷新批量操作条：选中计数、缩略图条（最多 8 个 + ＋N）、按钮显隐
 function updateBatchBar(){
   const n = selected.size;
   $('#batchBar').hidden = n === 0;
@@ -1953,6 +2006,7 @@ $('#batchStart').onclick = async ()=>{
     toast('批量处理启动失败:' + e.message, true);
   }
 };
+// 轮询批量任务进度（500ms）：更新进度条/文本/错误列表，结束态停轮询并汇总提示
 function pollBatchJob(){
   stopBatchPolling();
   batchJobTimer = setInterval(async ()=>{
@@ -1983,6 +2037,7 @@ function pollBatchJob(){
     }
   }, 500);
 }
+// 停止批量任务轮询定时器
 function stopBatchPolling(){
   if(batchJobTimer){ clearInterval(batchJobTimer); batchJobTimer = null; }
 }
@@ -1998,6 +2053,7 @@ $('#batchCancel').onclick = async ()=>{
 };
 
 /* ============ 评分/标记 ============ */
+// 设置单张照片评分并刷新当前网格
 async function setStars(id, stars){
   try{
     const r = await api.post(`/api/photos/${id}/stars`, { stars });
@@ -2007,6 +2063,7 @@ async function setStars(id, stars){
     refreshCurrentGrid();
   }catch(e){ toast('评分失败:'+e.message, true); }
 }
+// 设置单张照片标记（pick/reject/null 清除）并刷新当前网格
 async function setFlag(id, flag){
   try{
     const r = await api.post(`/api/photos/${id}/flag`, { flag });
@@ -2020,12 +2077,14 @@ async function setFlag(id, flag){
 /* ============ 幻灯片 ============ */
 let slIndex = 0;
 let slProgressTween = null;
+// 打开全屏幻灯片：从当前灯箱索引开始播放
 function openSlideshow(){
   if(!photos.length) return;
   $('#slideshow').hidden = false;
   slIndex = lbIndex >= 0 ? lbIndex : 0;
   slShow();
 }
+// 显示第 slIndex 张：交叉淡入换源 + Ken Burns + 进度条
 function slShow(){
   const p = photos[slIndex]; if(!p) return;
   const img = $('#slImg');
@@ -2050,6 +2109,7 @@ function slKenBurns(img, idx){
   gsap.fromTo(img, { scale: zoomIn ? 1 : 1.06 }, { scale: zoomIn ? 1.06 : 1, duration: dur, ease: 'power1.inOut' });
 }
 // v1.2 §3.3.2 顶部细进度条：每张从 scaleX(0) 到 scaleX(1)，时长=播放间隔
+// 启动顶部进度条动画（时长 = 播放间隔）
 function slStartProgress(){
   const el = $('#slProgress');
   const dur = (settings.slideshowInterval || 3);
@@ -2061,11 +2121,13 @@ function slStartProgress(){
     el.style.transform = 'scaleX(1)';
   }
 }
+// 停止进度条动画并归零（暂停/退出时）
 function slStopProgress(){
   if (slProgressTween) { slProgressTween.kill(); slProgressTween = null; }
   gsap.killTweensOf($('#slProgress'));
   $('#slProgress').style.transform = 'scaleX(0)';
 }
+// 播放/暂停幻灯片切换（空格键）：播放用 setInterval 定时切张
 function slPlay(){
   if(slTimer){
     clearInterval(slTimer); slTimer=null; $('#slPlay').textContent='▶';
@@ -2083,6 +2145,7 @@ $('#slPlay').onclick = slPlay;
 $('#slExit').onclick = ()=>{ $('#slideshow').hidden=true; if(slTimer){clearInterval(slTimer);slTimer=null;} slStopProgress(); };
 
 /* ============ 收藏夹 ============ */
+// 渲染收藏夹网格卡片（封面图 + 名称 + 数量 + 创建时间）
 function renderAlbums(){
   const ag = $('#albumsGrid');
   ag.innerHTML = '';
@@ -2102,6 +2165,7 @@ function renderAlbums(){
     ag.appendChild(card);
   });
 }
+// 打开收藏夹详情：加载其照片并复用主相册批量条/灯箱
 async function openAlbum(id){
   activeAlbumId = id;
   const a = albums.find(x=>x.id===id); if(!a) return;
@@ -2133,6 +2197,7 @@ function renderAlbumGrid(list, id){
   lastRenderedIds = new Set(cards.map(c=>c.dataset.id));
 }
 // 上下文感知的网格刷新：收藏夹详情页重建 #albumGrid，相册页重建 #grid
+// 上下文感知网格刷新：收藏夹详情重建 #albumGrid，相册页重建 #grid
 function refreshCurrentGrid(){
   if (activeAlbumId) renderAlbumGrid(photos, activeAlbumId);
   else renderGrid();
@@ -2230,6 +2295,7 @@ const SHORTCUTS = [
     ['← → Esc', '上一张 / 下一张 / 退出'],
   ]},
 ];
+// 按搜索词渲染快捷键列表（匹配按键或说明，无匹配的组跳过）
 function renderShortcuts(q = ''){
   const list = $('#shortcutList');
   list.innerHTML = '';
@@ -2250,12 +2316,14 @@ function renderShortcuts(q = ''){
     list.appendChild(group);
   });
 }
+// 打开快捷键速查浮层并聚焦搜索框
 function openShortcutModal(){
   renderShortcuts($('#shortcutSearch').value);
   if (window.UIAnim) window.UIAnim.modal($('#shortcutModal'), $('.modal-content', $('#shortcutModal')), true);
   else $('#shortcutModal').hidden = false;
   setTimeout(()=>$('#shortcutSearch').focus(), 50);
 }
+// 关闭快捷键速查浮层
 function closeShortcutModal(){
   if (window.UIAnim) window.UIAnim.modal($('#shortcutModal'), $('.modal-content', $('#shortcutModal')), false);
   else $('#shortcutModal').hidden = true;
@@ -2386,6 +2454,7 @@ document.addEventListener('keydown', e=>{
 let logsRefreshTimer = null;
 let logsAutoRefresh = true;
 
+// 从 /api/logs 加载日志并渲染表格行（级别/来源过滤，最新在上）
 async function loadLogs(){
   try {
     const level = $('#logsLevelFilter')?.value || '';
@@ -2498,6 +2567,7 @@ function applyLogSearch(){
 }
 
 // 前端日志记录函数（发送到后端）
+// 前端日志上报：同时输出到控制台并 POST 到后端 /api/logs/frontend（静默失败）
 async function logFrontend(level, message, data = null) {
   try {
     // 同时输出到控制台
@@ -2521,6 +2591,7 @@ async function logFrontend(level, message, data = null) {
 }
 
 // 绑定日志过滤器
+// 绑定日志页控件：级别/来源过滤、刷新、暂停、搜索、清空
 function bindLogFilters(){
   const levelFilter = $('#logsLevelFilter');
   const sourceFilter = $('#logsSourceFilter');
@@ -2684,6 +2755,7 @@ function showSelectModal(title, options = [], hint = '') {
 }
 
 /* ============ 启动 ============ */
+// 应用启动流程：获取令牌 → 加载设置/照片/收藏夹/标签 → 绑定日志控件 → OOBE 检查
 (async function init(){
   authToken = await initAuthToken();
   await loadSettings();
@@ -2701,6 +2773,7 @@ function showSelectModal(title, options = [], hint = '') {
 /* ============ OOBE 首次使用向导 ============ */
 let oobeCurrentStep = 1;
 
+// 检查 OOBE 状态，未完成则弹出首次使用向导
 async function checkAndShowOOBE(){
   try {
     const res = await api.get('/api/oobe/status');
@@ -2712,6 +2785,7 @@ async function checkAndShowOOBE(){
   }
 }
 
+// 显示 OOBE 向导模态框（从第 1 步开始）
 function showOOBE(){
   const modal = $('#oobeModal');
   if(!modal) return;
@@ -2754,6 +2828,7 @@ function updateOOBESteps(steps, prevBtn, nextBtn){
   nextBtn.textContent = oobeCurrentStep === 4 ? '开始使用' : '下一步';
 }
 
+// 完成 OOBE：通知后端落注册表并关闭向导
 async function completeOOBE(){
   try {
     await api.post('/api/oobe/complete');

@@ -50,6 +50,7 @@ const PORTABLE_DIR = (app.isPackaged && process.env.PORTABLE_EXECUTABLE_DIR)
   ? process.env.PORTABLE_EXECUTABLE_DIR
   : null;
 
+// 探测目录是否可写（便携版数据目录判定：不可写则回退 userData）
 function isDirWritable(dir) {
   try {
     const probe = path.join(dir, `.luma-write-${process.pid}.tmp`);
@@ -149,6 +150,7 @@ let currentLogger = null;
 let currentAuthToken = '';
 let activePort = PORT; // 当前实例实际监听端口（多开时为探测到的空闲端口）
 
+// 创建主窗口：加载本地服务器 URL，渲染进程关闭 nodeIntegration（安全隔离）
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -172,6 +174,7 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+// 启动 Express 服务器（createAppServer），并注册仅桌面端需要的 OOBE 注册表 API
 function startServer(port = PORT) {
   const { app: appServer, logger, getAuthToken } = createAppServer({
     port,
@@ -237,6 +240,7 @@ process.on('unhandledRejection', reason => {
 const gotLock = app.requestSingleInstanceLock();
 let isMultiOpen = false;
 
+// 多开确认弹窗：返回 true 表示用户选择「多开新窗口」
 async function confirmMultiOpen() {
   const { response } = await dialog.showMessageBox({
     type: 'question',

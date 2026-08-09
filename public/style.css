@@ -1,3 +1,4 @@
+/* ===== 设计系统变量（浅色默认） ===== */
 :root{
   --bg:#ffffff;
   --bg-soft:#f6f7f9;
@@ -63,6 +64,7 @@ html[data-theme="dark"][data-accent="#5856d6"]{--accent-soft:#12102e;--accent-so
 /* 非预置色：浅色用白底混色、深色用暗底混色兜底（Chromium/Electron 35 支持，不用 JS） */
 html[data-accent]:not([data-accent="#0071e3"]):not([data-accent="#ff375f"]):not([data-accent="#34c759"]):not([data-accent="#ff9500"]):not([data-accent="#af52de"]):not([data-accent="#5856d6"]){--accent-soft:color-mix(in srgb,var(--accent) 14%,#fff);--accent-soft-strong:color-mix(in srgb,var(--accent) 22%,#fff)}
 html[data-theme="dark"]:not([data-accent="#0071e3"]):not([data-accent="#ff375f"]):not([data-accent="#34c759"]):not([data-accent="#ff9500"]):not([data-accent="#af52de"]):not([data-accent="#5856d6"]){--accent-soft:color-mix(in srgb,var(--accent) 14%,var(--bg-raised));--accent-soft-strong:color-mix(in srgb,var(--accent) 24%,var(--bg-raised))}
+/* ===== 基础重置 ===== */
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html,body{height:100%}
@@ -285,6 +287,7 @@ html[data-theme="dark"] .album-cover::after{background:linear-gradient(to top,rg
 .editor-wrap.hidden{display:none}
 .editor-canvas{display:flex;flex-direction:column;background:var(--bg-soft);border-radius:var(--radius);
   overflow:hidden;border:1px solid var(--line)}
+/* 棋盘格透明背景：直观反映图片透明通道 */
 .canvas-stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative;padding:24px;
   background:repeating-conic-gradient(#fafbfc 0% 25%,#fff 0% 50%) 50%/22px 22px}
 .canvas-stage img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;background:#fff;
@@ -341,6 +344,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.18)}
 
 .btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
 .divider{height:1px;background:var(--line);margin:16px 0}
+/* ===== 标签编辑器（信息页） ===== */
 .tag-editor{display:flex;flex-direction:column;gap:10px;margin-bottom:6px}
 .tag-chips{display:flex;flex-wrap:wrap;gap:6px}
 .tag-chips:empty{display:none}

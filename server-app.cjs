@@ -43,14 +43,17 @@ const MAX_LOG_SIZE = 10 * 1024 * 1024;
 const MAX_LOG_BACKUPS = 3;
 
 /* ============ 工具 ============ */
+// 数值安全裁剪：非有限数回退默认值，再将结果夹在 [min, max] 区间
 function clampNum(v, min, max, dflt) {
   const n = Number(v);
   if (!Number.isFinite(n)) return dflt;
   return Math.min(max, Math.max(min, n));
 }
+// 数值安全裁剪并取整（用于评分、像素尺寸等整数参数）
 function clampInt(v, min, max, dflt) {
   return Math.round(clampNum(v, min, max, dflt));
 }
+// 宽松布尔转换：接受 true / 1 / '1' / 'true'
 function toBool(v) {
   return v === true || v === 1 || v === '1' || v === 'true';
 }
@@ -72,6 +75,7 @@ function fixUploadName(raw) {
 }
 
 /* ============ 日志系统 ============ */
+// 本地时间格式化为 YYYY-MM-DD HH:mm:ss.mmm（日志时间戳）
 function formatLocalTime(date = new Date()) {
   const pad = (n, w = 2) => String(n).padStart(w, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
@@ -140,6 +144,7 @@ function createLogger(logDir) {
 }
 
 /* ============ JSON 持久化（原子写 + 损坏备份） ============ */
+// 读取 JSON 文件；解析失败（且文件存在）时把损坏文件改名为 .corrupt-* 留档，返回 fallback
 function loadJSON(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -150,6 +155,7 @@ function loadJSON(file, fallback) {
     return fallback;
   }
 }
+// 原子写 JSON：先写临时文件再 rename，避免写一半崩溃留下损坏文件
 function saveJSONAtomic(file, obj) {
   const tmp = file + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf8');
@@ -227,6 +233,7 @@ function sanitizeTags(input) {
   return out;
 }
 
+// 设置净化：仅保留白名单字段并对每个字段做类型/取值范围校验，非法值回退默认设置
 function sanitizeSettings(input = {}) {
   const src = (input && typeof input === 'object') ? input : {};
   const format = String(src.defaultFormat || DEFAULT_SETTINGS.defaultFormat).toLowerCase();
@@ -397,6 +404,7 @@ async function runPipeline(srcPath, opts = {}, settings = DEFAULT_SETTINGS, onWa
   return { buffer, ext: FMT_EXT[fmt] || 'jpeg' };
 }
 
+// 生成 WebP 缩略图：按 EXIF 方向旋转后等比缩放进 thumbSize 方形内（不放大），存 <id>.webp
 async function makeThumb(srcPath, id, thumbSize, thumbsDir) {
   const thumbPath = path.join(thumbsDir, id + '.webp');
   await sharp(srcPath)
@@ -479,6 +487,7 @@ function sanitizeZipName(name) {
 
 /* ---------- PNG / WebP EXIF 写入（无损 chunk 级，不重新编码像素） ---------- */
 let CRC_TABLE = null;
+// CRC-32 校验：PNG chunk 写入时计算校验和（表驱动，懒初始化查找表）
 function crc32(buf) {
   if (!CRC_TABLE) {
     CRC_TABLE = new Int32Array(256);
@@ -493,6 +502,7 @@ function crc32(buf) {
   return (crc ^ -1) >>> 0;
 }
 
+// 组装单个 PNG chunk：长度(4B BE) + 类型(4B ASCII) + 数据 + CRC-32
 function pngChunk(type, data) {
   const head = Buffer.alloc(8);
   head.writeUInt32BE(data.length, 0);
@@ -504,6 +514,7 @@ function pngChunk(type, data) {
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
 
+// 从 PNG 字节中取出 eXIf chunk 数据；无 eXIf 或已到 IEND 返回 null
 function readPngExif(buf) {
   if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
   let pos = 8;
@@ -518,6 +529,7 @@ function readPngExif(buf) {
   return null;
 }
 
+// 写入 PNG EXIF：将 tiff 数据放进 eXIf chunk（插在 IEND 前），已存在则替换，返回新 PNG 字节
 function writePngExif(buf, tiff) {
   if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
   const parts = [buf.subarray(0, 8)];
@@ -542,6 +554,7 @@ function writePngExif(buf, tiff) {
   return Buffer.concat(parts);
 }
 
+// 解析 WebP 文件为 chunk 列表（RIFF 结构，含奇数字节 padding 处理）
 function readWebpChunks(buf) {
   if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WEBP') return null;
   const chunks = [];
@@ -557,6 +570,7 @@ function readWebpChunks(buf) {
   return chunks;
 }
 
+// 从 WebP chunk 列表中取出 EXIF chunk 数据；不存在返回 null
 function readWebpExif(buf) {
   const chunks = readWebpChunks(buf);
   if (!chunks) return null;
@@ -564,6 +578,7 @@ function readWebpExif(buf) {
   return ex ? ex.data : null;
 }
 
+// 从 VP8 / VP8L 图像 chunk 中解析画布尺寸（新建 VP8X 时需要）
 function webpCanvasSize(chunk) {
   const d = chunk.data;
   if (chunk.type === 'VP8L' && d.length >= 5 && d[0] === 0x2F) {
@@ -581,6 +596,7 @@ function webpCanvasSize(chunk) {
   return null;
 }
 
+// 写入 WebP EXIF：替换已有 EXIF chunk；无则新建 VP8X（设 EXIF 标志 + 画布尺寸）并把 EXIF 追加在图像数据后
 function writeWebpExif(buf, tiff) {
   const chunks = readWebpChunks(buf);
   if (!chunks) return null;
@@ -846,6 +862,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   const ah = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
   /* ---------- 关于 / 系统信息 ---------- */
+  // 应用信息：版本、Node/sharp 版本、照片统计、运行时长、进程信息（关于页）
   app.get('/api/info', (req, res) => {
     let total = 0;
     for (const p of db.photos) total += p.size || 0;
@@ -864,6 +881,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     });
   });
 
+  // 原图文件服务：路径净化（仅取 basename 防目录穿越）；带 download=1 时以下载方式返回
   app.get('/files/:file', (req, res, next) => {
     const filePath = path.join(DIRS.uploads, path.basename(req.params.file));
     if (!fs.existsSync(filePath)) return next();
@@ -881,11 +899,13 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 列表 ---------- */
+  // 全部照片列表（按上传时间倒序）
   app.get('/api/photos', (req, res) => {
     res.json([...db.photos].sort((a, b) => b.time - a.time));
   });
 
   /* ---------- 标签云 ---------- */
+  // 全库标签统计：按使用数降序、名称升序返回 [{ name, count }]（填充工具栏筛选下拉）
   app.get('/api/tags', (req, res) => {
     const counts = new Map();
     for (const p of db.photos) {
@@ -902,6 +922,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
    * 必须注册在 /api/photos/:id 系列路由之前：否则 'batch' 会被当作 id 吞掉，
    * 批量端点永远命中单张照片路由并返回 404。
    */
+  // 批量评分：对 ids 中的照片统一设置评分 0-5
   app.post('/api/photos/batch/stars', (req, res) => {
     const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
     const s = clampInt(req.body && req.body.stars, 0, 5, 0);
@@ -914,6 +935,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.json({ ok: true, updated: n, stars: s });
   });
 
+  // 批量标记精选/排除：flag = pick | reject，其他值清除标记
   app.post('/api/photos/batch/flag', (req, res) => {
     const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
     const f = (req.body && req.body.flag === 'pick' || req.body && req.body.flag === 'reject') ? req.body.flag : null;
@@ -948,6 +970,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.json({ ok: true, updated: n, mode, tags });
   });
 
+  // 批量删除：删原图 + 缩略图，并从所有相册中移除引用
   app.post('/api/photos/batch/delete', ah(async (req, res) => {
     const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
     let n = 0;
@@ -965,6 +988,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.json({ ok: true, deleted: n });
   }));
 
+  // 批量处理：创建后台任务（mode=overwrite 覆盖原图 / copy 另存副本），返回 jobId 供轮询
   app.post('/api/photos/batch/process', (req, res) => {
     const body = req.body || {};
     const ids = Array.isArray(body.ids)
@@ -979,6 +1003,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.json({ ok: true, jobId: job.id, total: job.total });
   });
 
+  // 单张照片详情
   app.get('/api/photos/:id', (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1033,6 +1058,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- 删除 ---------- */
+  // 删除单张照片：删原图 + 缩略图，并从所有相册中移除引用
   app.delete('/api/photos/:id', ah(async (req, res) => {
     const idx = db.photos.findIndex(x => x.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: '未找到' });
@@ -1044,6 +1070,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.json({ ok: true });
   }));
 
+  // 清空全部照片：删所有原图 + 缩略图，并清空所有相册引用
   app.delete('/api/photos', ah(async (req, res) => {
     for (const p of db.photos) {
       await fsp.rm(path.join(DIRS.uploads, p.file), { force: true });
@@ -1056,6 +1083,8 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- EXIF 读取 ---------- */
+  // 读取照片 EXIF：JPEG 走 exifr 直接解析；PNG/WebP 从 chunk 取 TIFF 后解析；
+  // 文本标签统一走 readTiffTextTags（兼容 UTF-8/UTF-16/GBK），解析失败返回空对象
   app.get('/api/photos/:id/exif', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1088,6 +1117,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- EXIF 写入（JPEG / PNG / WebP） ---------- */
+  // 写入可编辑字段（作者/版权/描述/软件/拍摄时间）：JPEG 用 piexif 插入，PNG/WebP 无损 chunk 级写入
   app.post('/api/photos/:id/exif', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1135,6 +1165,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- 抹除元数据（无损） ---------- */
+  // 抹除全部 EXIF：JPEG 无损剥离（保留方向标记防侧躺），其他格式重编码；随后重建元数据与缩略图
   app.post('/api/photos/:id/strip-exif', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1147,6 +1178,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- 处理 / 导出 ---------- */
+  // 处理并保存：mode=overwrite 覆盖原图 / copy 另存新副本；返回处理后的照片记录
   app.post('/api/photos/:id/process', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1176,6 +1208,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- 渲染下载 / 预览 ---------- */
+  // 渲染下载：按编辑参数处理后直接返回图片字节（不落库）
   app.post('/api/photos/:id/render', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1185,6 +1218,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.send(buffer);
   }));
 
+  // 预览估算：处理但不返回图片，仅给出结果字节大小（编辑器「预计大小」）
   app.post('/api/photos/:id/preview', ah(async (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1193,6 +1227,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }));
 
   /* ---------- 重命名 ---------- */
+  // 重命名照片显示名称（仅改库中 name，不改物理文件名）
   app.post('/api/photos/:id/rename', (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1204,11 +1239,13 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 编辑草稿（v1.2 §3.4.3：单快照草稿，非版本链） ---------- */
+  // 读取某照片的已保存草稿；无草稿返回 404
   app.get('/api/photos/:id/draft', (req, res) => {
     const d = drafts[req.params.id];
     if (!d) return res.status(404).json({ error: '无草稿' });
     res.json({ ok: true, draft: d });
   });
+  // 保存草稿（覆盖式）：写入 adjust/transform/resize/output 快照，超 8KB 或超 1000 条时按最旧清理
   app.put('/api/photos/:id/draft', (req, res) => {
     const body = (req.body && typeof req.body === 'object') ? req.body : {};
     const draft = {
@@ -1230,6 +1267,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     persistDrafts();
     res.json({ ok: true, draft });
   });
+  // 删除草稿（导出成功或用户重置时调用）
   app.delete('/api/photos/:id/draft', (req, res) => {
     delete drafts[req.params.id];
     persistDrafts();
@@ -1237,7 +1275,9 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 设置（校验） ---------- */
+  // 读取当前设置（不含本地访问令牌）
   app.get('/api/settings', (req, res) => res.json(settings));
+  // 更新设置：合并传入字段后整体净化落盘
   app.post('/api/settings', (req, res) => {
     settings = sanitizeSettings({ ...settings, ...(req.body || {}) });
     persistSettings();
@@ -1253,6 +1293,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 存储统计 ---------- */
+  // 存储统计：照片数、总占用、缩略图尺寸、数据目录路径（设置页展示）
   app.get('/api/stats', (req, res) => {
     let total = 0;
     for (const p of db.photos) total += p.size || 0;
@@ -1265,6 +1306,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 评分 / 标记 ---------- */
+  // 单张评分：设置 0-5 星
   app.post('/api/photos/:id/stars', (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1273,6 +1315,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     res.json({ ok: true, stars: p.stars });
   });
 
+  // 单张标记精选/排除：flag = pick | reject，其他值清除标记
   app.post('/api/photos/:id/flag', (req, res) => {
     const p = db.photos.find(x => x.id === req.params.id);
     if (!p) return res.status(404).json({ error: '未找到' });
@@ -1292,12 +1335,14 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 相册 ---------- */
+  // 相册列表：附带有效照片数 count 与首图封面 id（已删除的照片自动从引用中剔除）
   app.get('/api/albums', (req, res) => {
     res.json(db.albums.map(a => {
       const ids = (a.photoIds || []).filter(id => db.photos.some(p => p.id === id));
       return { ...a, count: ids.length, cover: ids.length ? ids[0] : null };
     }));
   });
+  // 新建相册（名称必填，最长 100 字）
   app.post('/api/albums', (req, res) => {
     const name = String((req.body && req.body.name) || '').trim();
     if (!name) return res.status(400).json({ error: '名称不能为空' });
@@ -1306,11 +1351,13 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     persistDB();
     res.json({ ok: true, album });
   });
+  // 删除相册（仅删引用，不删照片）
   app.delete('/api/albums/:id', (req, res) => {
     db.albums = db.albums.filter(a => a.id !== req.params.id);
     persistDB();
     res.json({ ok: true });
   });
+  // 重命名相册
   app.post('/api/albums/:id/rename', (req, res) => {
     const a = db.albums.find(x => x.id === req.params.id);
     if (!a) return res.status(404).json({ error: '未找到' });
@@ -1318,6 +1365,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     persistDB();
     res.json({ ok: true, album: a });
   });
+  // 向相册添加照片（ids 数组，已存在/不存在的 id 自动跳过）
   app.post('/api/albums/:id/add', (req, res) => {
     const a = db.albums.find(x => x.id === req.params.id);
     if (!a) return res.status(404).json({ error: '未找到相册' });
@@ -1328,6 +1376,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     persistDB();
     res.json({ ok: true, count: a.photoIds.length });
   });
+  // 从相册移除照片（ids 数组）
   app.post('/api/albums/:id/remove', (req, res) => {
     const a = db.albums.find(x => x.id === req.params.id);
     if (!a) return res.status(404).json({ error: '未找到相册' });
@@ -1358,6 +1407,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   }
   loadPersistedJobs();
 
+  // 创建批量任务记录：初始化进度字段、入内存 Map 并落盘；超 MAX_JOBS 时清理最早结束的任务
   function createJob(type, payload) {
     const job = {
       id: nanoid(10),
@@ -1386,6 +1436,8 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   // 批量任务并发度：2 路并行。串行太慢（大量照片时明显），过高则 sharp 内存峰值失控
   const BATCH_CONCURRENCY = 2;
 
+  // 执行批量任务：BATCH_CONCURRENCY 路 worker 共享索引逐张处理，
+  // 单张错误隔离（只记 errors），完成/取消/异常时落盘任务状态
   async function runBatchJob(job) {
     const { ids, pipeline, mode } = job.payload;
     // 单张照片处理（错误隔离：失败只记录，不中断整批）
@@ -1469,6 +1521,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     }
   }
 
+  // 查询批量任务进度：总数/已完成/当前照片/结果/错误（前端 500ms 轮询）
   app.get('/api/jobs/:id', (req, res) => {
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: '任务不存在' });
@@ -1485,6 +1538,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     });
   });
 
+  // 取消批量任务：置 canceled 标志，worker 不再取新任务（已完成的保留）
   app.post('/api/jobs/:id/cancel', (req, res) => {
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: '任务不存在' });
@@ -1494,6 +1548,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 批量下载 ZIP（条目名净化） ---------- */
+  // 将选中照片打包为 ZIP 流式下载；文件名经 sanitizeZipName 净化，重名自动加 _2/_3 后缀
   app.post('/api/photos/download-zip', (req, res) => {
     const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
     const photos = ids.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
@@ -1519,6 +1574,8 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 搜索 ---------- */
+  // 相册搜索/筛选：支持 q(文件名)、stars、flag(pick/reject/flagged)、format、tag、album，
+  // hideReject=1 隐藏排除照片，sort 支持 newest/oldest/name/name_desc/size/size_desc/stars
   app.get('/api/search', (req, res) => {
     let list = [...db.photos];
     const { q, stars, flag, album, format, sort, tag } = req.query;
@@ -1548,6 +1605,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 日志 API ---------- */
+  // 读取日志（JSONL）：按 level/source 过滤，取末尾 limit 条并倒序（最新在前）
   app.get('/api/logs', (req, res) => {
     try {
       if (!fs.existsSync(LOG_FILE)) return res.json({ logs: [], total: 0 });
@@ -1568,6 +1626,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     }
   });
 
+  // 清空日志：清空主文件并删除所有轮转备份
   app.post('/api/logs/clear', (req, res) => {
     try {
       if (fs.existsSync(LOG_FILE)) fs.writeFileSync(LOG_FILE, '', 'utf8');
@@ -1583,10 +1642,12 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
     }
   });
 
+  // 日志路径信息（设置/关于页展示用）
   app.get('/api/logs/info', (req, res) => {
     res.json({ logDir: LOG_DIR, logFile: LOG_FILE, isElectron, logDirName: isElectron ? 'log' : 'log' });
   });
 
+  // 接收前端上报日志（级别白名单 + 消息截断 1000 字），来源记为 frontend
   app.post('/api/logs/frontend', (req, res) => {
     const allowed = new Set(['info', 'warn', 'error', 'debug']);
     const level = allowed.has(req.body && req.body.level) ? req.body.level : 'info';
@@ -1596,6 +1657,7 @@ function createAppServer({ port, dirs, logDir, publicDir, version = '1.3.1', isE
   });
 
   /* ---------- 统一错误处理 ---------- */
+  // 全局错误中间件：写锁冲突返回 409；其余记日志后返回 500，headersSent 时交给 Express 默认处理
   app.use((err, req, res, next) => {
     // 写锁冲突：返回 409（前端提示另一实例正在写入）
     if (err && err.lumaWriteConflict) {
