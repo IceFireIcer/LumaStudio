@@ -10,7 +10,7 @@ Luma Studio（光影工作室）是自托管的桌面图片查看器与 Lightroo
 
 - `npm install` — 安装依赖
 - `npm start` / `npm run dev` / `npm run electron` — 启动桌面应用（经 electron-launch.cjs spawn Electron）
-- `npm test` — 运行 node:test 回归套件（`test/server.test.cjs`，当前 **49 个全部通过**）
+- `npm test` — 运行 node:test 回归套件（`test/server.test.cjs`，当前 **51 个全部通过**）
 - 运行单个测试：`node --test --test-name-pattern "关键词" test/server.test.cjs`
 - `npm run build:win` / `build:mac` / `build:linux` — 打包安装器到 `release/`（win 目标为 NSIS + portable）
 - UI 冒烟测试：`npx electron scripts/ui-smoke.cjs`（真实 Electron 加载前端，覆盖交互验收与回归，关注 `CONSOLE-ERRORS []` 输出）。冒烟测试有硬性约束：窗口必须 `show: true`（隐藏窗口 rAF 被节流，GSAP `onComplete` 不触发）；服务器须用**固定端口**（CSRF 白名单按端口生成，端口 0 会使渲染进程 POST 全部 403）；OOBE 路由只在 electron-main.cjs 中注册，测试需注册桩；**运行前清除环境变量 `ELECTRON_RUN_AS_NODE`**（部分 shell 预设该变量，会让 Electron 以 Node 模式启动、`app` 为 undefined 直接崩）

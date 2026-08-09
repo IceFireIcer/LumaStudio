@@ -16,7 +16,7 @@ Source layout (repository root):
 - `electron-launch.cjs` — launcher that spawns Electron
 - `public/` — frontend: `index.html`, `style.css`, `app.js`, `ui-anim.js` (GSAP layer), `vendor/gsap/` (with `FlipPlugin.min.js`)
 - `scripts/ui-smoke.cjs` — Electron UI smoke test (23 scenario markers + `CONSOLE-ERRORS` assertion, 3 failure markers)
-- `test/` — node:test regression suite (`test/server.test.cjs`, 44 tests)
+- `test/` — node:test regression suite (`test/server.test.cjs`, 51 tests)
 - `docs/ui-redesign.md` — v1.2 UI/UX redesign spec (the fact source for that batch)
 - `build/installer/` — Inno Setup installer scripts (source files, do not delete)
 - `storage/` — writable runtime data root (kept via `.gitkeep`; contents never committed)
@@ -30,7 +30,7 @@ Requires Node.js >= 18. Run from the repository root:
 
 - `npm install` — install dependencies
 - `npm start` / `npm run dev` / `npm run electron` — launch the desktop app
-- `npm test` — run the node:test regression suite (44 tests)
+- `npm test` — run the node:test regression suite (51 tests)
 - `npx electron scripts/ui-smoke.cjs` — UI smoke test (clear `ELECTRON_RUN_AS_NODE` env first if set)
 - `npm run build:win|mac|linux` — package installers into `release/`
 

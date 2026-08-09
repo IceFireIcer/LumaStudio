@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 最新版本：**v1.2.1**（2026-08-08，bug 修复 + 多开 + 安全增强批次）
-- 测试：`npm test` 44 个全部通过（含多开写锁、令牌、任务落盘、WebP 400 回归）；`npx electron scripts/ui-smoke.cjs` 全绿（`CONSOLE-ERRORS []`，新增 `WEBP400` 用例）
+- 最新版本：**v1.3.1**（2026-08-09，标签体系 + 快捷键速查浮层溢出修复）
+- 测试：`npm test` 51 个全部通过（含多开写锁、令牌、任务落盘、WebP 400、标签净化/批量/标签云、running 任务取消、损坏 EXIF 兜底回归）；`npx electron scripts/ui-smoke.cjs` 全绿（`CONSOLE-ERRORS []`，新增 `WEBP400`、`TAG` 用例）
 
 ## 已完成
 

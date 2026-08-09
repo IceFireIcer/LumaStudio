@@ -154,7 +154,7 @@ npm run electron
 │   ├── ui-anim.js          # GSAP animation layer (window.UIAnim)
 │   └── vendor/gsap/        # Local GSAP (incl. FlipPlugin)
 ├── scripts/ui-smoke.cjs    # UI smoke test (real Electron)
-├── test/server.test.cjs    # Regression tests (node:test, 49 tests)
+├── test/server.test.cjs    # Regression tests (node:test, 51 tests)
 ├── docs/                   # Design spec (ui-redesign.md)
 ├── build/installer/        # Inno Setup installer scripts
 ├── storage/                # Runtime data (userData)
